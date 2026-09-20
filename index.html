@@ -60,6 +60,10 @@
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+  /* .btn などの display 指定がブラウザ標準の [hidden] に勝ってしまうため、
+     非表示にしたはずのボタンが表示されてしまう。ここで明示的に打ち消す。 */
+  [hidden] { display: none !important; }
+
   body {
     margin: 0;
     background: var(--bg);
@@ -129,8 +133,8 @@
 
   .pill {
     flex-shrink: 0; border: none; cursor: pointer;
-    min-height: 40px; padding: 0 14px; border-radius: 999px;
-    font-size: 14px; font-weight: 700; font-family: inherit;
+    min-height: 48px; padding: 0 16px; border-radius: 999px;
+    font-size: 15px; font-weight: 700; font-family: inherit;
   }
   .pill.paid { background: var(--ok-bg); color: var(--ok); }
   .pill.unpaid { background: var(--warn-bg); color: var(--warn); }
@@ -160,7 +164,14 @@
     padding: 10px 12px; border: 1px solid var(--border);
     border-radius: 10px; background: var(--bg); color: var(--text);
     font-size: 16px; /* iOSで入力時に画面が拡大するのを防ぐ */
+  }
+  /* 日付と時刻の入力欄は、見た目をリセットするとiOSで表示が崩れるので除く */
+  label.field input:not([type="date"]):not([type="time"]),
+  label.field select, label.field textarea {
     -webkit-appearance: none; appearance: none;
+  }
+  label.field input[type="date"], label.field input[type="time"] {
+    line-height: 1.4; text-align: left;
   }
   label.field select {
     /* 端末標準の下向き矢印が消えるので、自前で描く */
@@ -186,8 +197,8 @@
   }
   nav.tabs button {
     flex: 1; min-width: 0; border: none; background: none; cursor: pointer;
-    padding: 9px 2px 11px; color: var(--text-dim);
-    font-size: 10px; font-weight: 600; white-space: nowrap;
+    padding: 8px 2px 10px; color: var(--text-dim);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
   }
   nav.tabs button.active { color: var(--accent); }
@@ -229,7 +240,10 @@
   }
 
   .hint { font-size: 13px; color: var(--text-dim); margin: 6px 0 0; }
-  .inactive { opacity: .48; }
+  /* 解約済みや出庫済みの行。
+     opacity で薄くすると文字が読めなくなるため、色だけ落とす。 */
+  .inactive .name { color: var(--text-dim); font-weight: 600; }
+  .inactive .slot { opacity: .6; }
 </style>
 </head>
 <body>
@@ -463,12 +477,12 @@ function freshData() {
   };
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return freshData();
-    const parsed = JSON.parse(raw);
-
+/* 保存されたデータを、今のバージョンが扱える形に整える。
+   起動時の読み込みと、バックアップからの復元の両方でこれを通す。
+   復元側でこれを忘れると、古いバックアップの料金が変わってしまう。 */
+function normalizeData(parsed) {
+  if (!parsed || typeof parsed !== "object") return freshData();
+  {
     const contracts = Array.isArray(parsed.contracts) ? parsed.contracts : [];
 
     const rates = Object.assign({}, DEFAULT_RATES);
@@ -493,7 +507,22 @@ function load() {
       siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
       lastBackup: typeof parsed.lastBackup === "string" ? parsed.lastBackup : "",
     };
+  }
+}
+
+/* 読み込みに失敗したかどうか。失敗時は起動直後に知らせる。 */
+let loadFailed = false;
+
+function load() {
+  const raw = localStorage.getItem(STORE_KEY);
+  if (!raw) return freshData();
+  try {
+    return normalizeData(JSON.parse(raw));
   } catch (e) {
+    /* 壊れた中身をそのまま捨てると復旧できなくなるので、別の場所へ退避する。
+       この後に空データで保存すると元データが消えるため、利用者に知らせる。 */
+    loadFailed = true;
+    try { localStorage.setItem(STORE_KEY + ".broken", raw); } catch (e2) {}
     console.warn("保存データを読めませんでした", e);
     return freshData();
   }
@@ -503,11 +532,28 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(data));
   } catch (e) {
-    alert("保存に失敗しました。ブラウザのプライベートモードを解除してお試しください。");
+    const quota = e && (e.name === "QuotaExceededError"
+                        || e.name === "NS_ERROR_DOM_QUOTA_REACHED" || e.code === 22);
+    alert(quota
+      ? "保存できません。端末の空き容量が足りていません。\n"
+        + "写真などを整理してから、もう一度お試しください。\n"
+        + "このままだと入力した内容が残りません。"
+      : "保存に失敗しました。\n"
+        + "Safariのプライベートブラウズを使っている場合は解除してください。\n"
+        + "このままだと入力した内容が残りません。");
   }
 }
 
 let data = load();
+
+if (loadFailed) {
+  setTimeout(() => {
+    alert("保存されていたデータを読み取れませんでした。\n\n"
+      + "壊れた内容は端末内に退避してあります。\n"
+      + "新しく入力する前に、設定タブの「バックアップから復元する」で\n"
+      + "控えのファイルを読み込んでください。");
+  }, 300);
+}
 
 /* ===== 便利関数 ===== */
 const yen = n => "¥" + (Number(n) || 0).toLocaleString("ja-JP");
@@ -566,18 +612,35 @@ function isStartMonth(c, mKey) {
   return Boolean(c.start) && c.start.slice(0, 7) === mKey;
 }
 
+/* その月に契約が始まっているか。
+   開始日より前の月は請求対象にしない(未来の契約者に過去分を請求しないため)。 */
+function isActiveIn(c, mKey) {
+  if (!c.start) return true;              // 開始日が未入力なら常に対象
+  return mKey >= c.start.slice(0, 7);
+}
+
+/* その月に請求対象となる契約者 */
+function contractsFor(mKey) {
+  return activeContracts().filter(c => isActiveIn(c, mKey));
+}
+
 /* mKey の月に、その契約者が実際に停める日数 */
 function daysUsedIn(c, mKey) {
   const total = daysInMonth(mKey);
   if (!isStartMonth(c, mKey)) return total;
   const startDay = Number(c.start.slice(8, 10));
-  if (!Number.isFinite(startDay) || startDay < 1) return total;
-  return Math.max(0, total - startDay + 1);
+  /* 日付が壊れている場合(例: 2026-09-99)は満額として扱う。
+     0円で請求し損ねるより安全なため。 */
+  if (!Number.isFinite(startDay) || startDay < 1 || startDay > total) return total;
+  return Math.max(1, total - startDay + 1);
 }
 
 /* mKey の月の請求額と、その内訳を返す */
 function chargeFor(c, mKey) {
   const monthly = feeOf(c);
+  if (!isActiveIn(c, mKey)) {
+    return { amount: 0, prorated: false, days: 0, capped: false, notYet: true };
+  }
   if (!isStartMonth(c, mKey)) {
     return { amount: monthly, prorated: false, days: daysInMonth(mKey), capped: false };
   }
@@ -585,6 +648,24 @@ function chargeFor(c, mKey) {
   const raw = days * data.rates.daily;
   const capped = raw > monthly;
   return { amount: Math.min(raw, monthly), prorated: true, days, capped, raw };
+}
+
+/* 画面に出す金額。
+   入金済みならその時に実際に受け取った額を使う。
+   こうしないと、後から料金設定を変えたときに過去の表示額が動いてしまい、
+   売上タブやCSVの金額と食い違う。 */
+function shownAmount(c, mKey) {
+  const p = data.payments[payKey(c.id, mKey)];
+  if (p && Number.isFinite(Number(p.amount))) {
+    return {
+      amount: Number(p.amount),
+      prorated: Boolean(p.prorated),
+      days: Number(p.days) || 0,
+      capped: false,
+      recorded: true,
+    };
+  }
+  return chargeFor(c, mKey);
 }
 
 function escapeHtml(s) {
@@ -598,12 +679,12 @@ let viewMonth = monthKey(new Date());
 
 /* ===== ホーム画面 ===== */
 function renderHome() {
-  const list = activeContracts();
   const now = new Date();
   const thisMonth = monthKey(now);
+  const list = contractsFor(thisMonth);
   const unpaid = list.filter(c => !isPaid(c.id, thisMonth));
   const paidTotal = list.filter(c => isPaid(c.id, thisMonth))
-                        .reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
+                        .reduce((s, c) => s + shownAmount(c, thisMonth).amount, 0);
   const unpaidTotal = unpaid.reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
 
   const today = todayKey(now);
@@ -615,7 +696,7 @@ function renderHome() {
   const lastDay = daysInMonth(thisMonth);
   const daysLeft = lastDay - now.getDate();
   const nextMonth = shiftMonth(thisMonth, 1);
-  const notRenewed = list.filter(c => !isPaid(c.id, nextMonth));
+  const notRenewed = contractsFor(nextMonth).filter(c => !isPaid(c.id, nextMonth));
   const showRenewal = daysLeft <= 10 && notRenewed.length > 0;
 
   $("#view-home").innerHTML = `
@@ -641,6 +722,16 @@ function renderHome() {
         ${stillHere === 0 ? "" : `<br>未出庫 ${stillHere}台`}
       </p>
     </div>
+
+    ${!backupOverdue() ? "" : `
+    <div class="card" style="border-color:var(--warn)">
+      <h2 style="color:var(--warn)">データの控えを取ってください</h2>
+      <p class="hint" style="margin:0 0 12px">
+        ${escapeHtml(backupStatusText())}<br>
+        この端末が壊れると記録は戻せません。Googleドライブに保存しておきましょう。
+      </p>
+      <button class="btn primary block" id="homeBackup">データの控えを保存する</button>
+    </div>`}
 
     ${!showRenewal ? "" : `
     <div class="card" style="border-color:var(--warn)">
@@ -678,6 +769,9 @@ function renderHome() {
           </div>`;
           }).join("")}
     </div>`;
+
+  const hb = $("#homeBackup");
+  if (hb) hb.addEventListener("click", () => { doBackup(); });
 
   $("#view-home").querySelectorAll("[data-renew]").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -731,9 +825,9 @@ function renderList() {
 
 /* ===== 入金管理 ===== */
 function renderPay() {
-  const list = activeContracts();
+  const list = contractsFor(viewMonth);
   const paid = list.filter(c => isPaid(c.id, viewMonth));
-  const total = paid.reduce((s, c) => s + chargeFor(c, viewMonth).amount, 0);
+  const total = paid.reduce((s, c) => s + shownAmount(c, viewMonth).amount, 0);
 
   $("#view-pay").innerHTML = `
     <div class="month-bar">
@@ -752,21 +846,21 @@ function renderPay() {
     </div>
 
     <div class="card">
-      <h2>名前をタップで入金を記録</h2>
+      <h2>右のボタンを押すと入金を記録します</h2>
       ${list.length === 0
-        ? `<div class="empty">契約中の方がいません。</div>`
+        ? `<div class="empty">この月に契約中の方はいません。<br>「契約者」タブから追加してください。</div>`
         : list.map(c => {
             const p = isPaid(c.id, viewMonth);
-            const ch = chargeFor(c, viewMonth);
+            const ch = shownAmount(c, viewMonth);
             return `
             <div class="row">
               <div class="slot">${escapeHtml(c.slot || "-")}</div>
               <div class="main-col">
                 <div class="name">${escapeHtml(c.name)}</div>
-                <div class="meta">${escapeHtml(yen(ch.amount))}${ch.prorated ? ` (日割り ${ch.days}日${ch.capped ? "・月額上限" : ""})` : ""}</div>
+                <div class="meta">${escapeHtml(yen(ch.amount))}${ch.prorated ? ` (${ch.days}日分・月額まで)` : ""}${p ? " ・ 受取済" : ""}</div>
               </div>
               <button class="pill ${p ? "paid" : "unpaid"}" data-toggle="${escapeHtml(c.id)}">
-                ${p ? "入金済み" : "未入金"}
+                ${p ? "取り消す" : "受け取る"}
               </button>
             </div>`;
           }).join("")}
@@ -782,9 +876,16 @@ function renderPay() {
   });
 }
 
+/* 入金の記録と取り消し。
+   取り消しは受領額ごと消える操作なので、必ず確認を取る。
+   取り消した後に押し直すと、その時点の料金設定で記録し直される点にも注意。 */
 function togglePay(contractId, mKey) {
   const k = payKey(contractId, mKey);
   if (data.payments[k]) {
+    const c = data.contracts.find(x => x.id === contractId);
+    const amt = yen(data.payments[k].amount);
+    if (!confirm(`${c ? c.name + "さん" : ""}の${monthLabel(mKey)}分 ${amt} の入金記録を取り消します。\n`
+                 + `よろしいですか?`)) return;
     delete data.payments[k];
   } else {
     const c = data.contracts.find(x => x.id === contractId);
@@ -884,8 +985,11 @@ function renderTemp() {
       if (!t) return;
 
       if (t.outAt) {
-        /* 出庫済みを取り消す */
+        /* 出庫済みを取り消す。記録した時刻が消えるので確認を取る。 */
+        if (!confirm(`${escapeHtml(t.outAt)}の出庫記録を取り消します。よろしいですか?`)) return;
         t.outAt = ""; t.outDate = "";
+        /* 日数分に書き換えた料金があれば、元の金額に戻す */
+        if (t.feeBeforeStay != null) { t.fee = t.feeBeforeStay; delete t.feeBeforeStay; }
       } else {
         t.outAt = nowTime();
         t.outDate = tempDate;
@@ -895,6 +999,7 @@ function renderTemp() {
           if (Number(t.fee) !== suggested &&
               confirm(`${days}日間の預かりです。\n料金を${yen(suggested)}(${days}日分)に変更しますか?\n`
                       + `「キャンセル」を押すと${yen(t.fee)}のままにします。`)) {
+            t.feeBeforeStay = Number(t.fee) || 0;   // 取り消した時に戻せるよう控える
             t.fee = suggested;
           }
         }
@@ -948,8 +1053,10 @@ function openTemp(id) {
   $("#tempDelete").hidden = !t;
   updateStayHint();
 
+  /* 自動でフォーカスしない。
+     iPadでは選択欄にフォーカスするとホイールが勝手に開き、
+     閉じる操作が1つ増えてしまうため。 */
   $("#tempDlg").showModal();
-  if (!t) setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 50);
 }
 
 /* 入庫日と出庫日から預かり日数を出し、目安の料金を案内する */
@@ -971,7 +1078,7 @@ function updateStayHint() {
   $("#tempForm")[k].addEventListener("change", updateStayHint);
 });
 
-$("#tempForm").addEventListener("submit", () => {
+$("#tempForm").addEventListener("submit", (ev) => {
   const f = $("#tempForm");
   const rec = {
     note: f.note.value.trim(),
@@ -985,6 +1092,12 @@ $("#tempForm").addEventListener("submit", () => {
   if (rec.outAt && !rec.outDate) rec.outDate = rec.date;
   /* 出庫日だけ入れて時刻が無い場合は、日付も無効にする(未出庫のまま) */
   if (!rec.outAt) rec.outDate = "";
+  /* 出庫が入庫より前だと、集計から消えて見えなくなるので保存させない */
+  if (rec.outDate && rec.outDate < rec.date) {
+    ev.preventDefault();   // これが無いとダイアログが閉じてしまう
+    alert("出庫日が入庫日より前になっています。\n日付を確かめてください。");
+    return;
+  }
   Object.keys(TEMP_FIELDS).forEach(key => { rec[key] = f[key].value; });
   if (editingTempId) {
     const t = data.temps.find(x => x.id === editingTempId);
@@ -1078,20 +1191,20 @@ function renderSales() {
   $("#csvSummary").addEventListener("click", () => exportSummaryCsv(salesYear));
 }
 
-/* CSVの1項目を安全な形に整える */
+/* CSVの1項目を安全な形に整える。
+   先頭が = + - @ の値は、Excelが数式として実行してしまう。
+   氏名やメモにそういう文字が入っていても害が出ないよう、
+   先頭にアポストロフィを足して文字列として扱わせる。 */
 function csvCell(v) {
-  const s = String(v == null ? "" : v);
+  let s = String(v == null ? "" : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
 /* ExcelはBOMが無いと日本語を文字化けさせるので先頭に付ける */
 function downloadCsv(rows, filename) {
   const body = rows.map(r => r.map(csvCell).join(",")).join("\r\n");
-  const blob = new Blob(["﻿" + body], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return deliverFile("﻿" + body, filename, "text/csv;charset=utf-8");
 }
 
 function exportDetailCsv(year) {
@@ -1163,6 +1276,7 @@ function exportSummaryCsv(year) {
     rows.push([m + "月", s.monthlyCount, s.monthly, s.tempCount, s.temp, s.total]);
     t1 += s.monthlyCount; t2 += s.monthly; t3 += s.tempCount; t4 += s.temp;
   }
+  if (t2 + t4 === 0) { alert(`${year}年の記録がありません。`); return; }
   rows.push(["合計", t1, t2, t3, t4, t2 + t4]);
   downloadCsv(rows, `売上集計_${year}年.csv`);
 }
@@ -1182,9 +1296,12 @@ function daysSinceBackup() {
   return Math.floor((Date.now() - then.getTime()) / 86400000);
 }
 
+/* 端末のデータはiOSの都合で消えることがあるので、催促は短めにする。
+   記録が1件も無いうちは催促しない。 */
 function backupOverdue() {
+  if (data.contracts.length === 0 && data.temps.length === 0) return false;
   const d = daysSinceBackup();
-  return d === null || d >= 30;
+  return d === null || d >= 14;
 }
 
 function backupStatusText() {
@@ -1200,36 +1317,45 @@ function markBackedUp() {
   save();
 }
 
-async function doBackup() {
-  const text = JSON.stringify(data, null, 2);
-  const name = backupFileName();
-
-  /* iPad/iPhone: 共有メニューを出して、Googleドライブやファイルに保存してもらう */
+/* ファイルを1つ端末に渡す。
+   iPadのSafariは a.download をほぼ無視するので、まず共有メニューを試す。
+   共有が使えない環境(パソコンのブラウザ)だけ、従来のダウンロードにする。
+   戻り値: 共有をキャンセルされた場合は false。 */
+async function deliverFile(text, name, mime) {
   try {
     if (typeof File === "function" && navigator.share && navigator.canShare) {
-      const file = new File([text], name, { type: "application/json" });
+      const file = new File([text], name, { type: mime });
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: name });
-        markBackedUp();
-        renderAll();
-        return;
+        return true;
       }
     }
   } catch (e) {
-    /* 共有をキャンセルした場合もここに来る。ダウンロードは行わず終了する。 */
-    if (e && e.name === "AbortError") return;
+    if (e && e.name === "AbortError") return false;   // 利用者が閉じた
+    /* それ以外は共有が使えないだけなので、下のダウンロードへ進む */
   }
 
-  /* パソコンのブラウザ向け */
-  const blob = new Blob([text], { type: "application/json" });
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);   // 一部のブラウザはDOMに無いと動かない
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  markBackedUp();
-  renderAll();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    if (a.parentNode) a.parentNode.removeChild(a);
+  }, 60000);                      // 大きいファイルでも取りこぼさないよう長めに待つ
+  return true;
+}
+
+async function doBackup(silent) {
+  const ok = await deliverFile(
+    JSON.stringify(data, null, 2), backupFileName(), "application/json");
+  if (!ok) return false;
+  if (!silent) { markBackedUp(); renderAll(); }
+  return true;
 }
 
 /* ===== 設定・バックアップ ===== */
@@ -1317,21 +1443,39 @@ function renderSettings() {
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed.contracts)) throw new Error("形式が違います");
-      if (!confirm("今このアプリに入っているデータは上書きされます。復元しますか?")) return;
-      data = {
-        contracts: parsed.contracts,
-        payments: parsed.payments || {},
-        temps: (Array.isArray(parsed.temps) ? parsed.temps : []).map(normalizeTemp),
-        rates: (parsed.rates && typeof parsed.rates === "object")
-          ? Object.assign({}, DEFAULT_RATES, parsed.rates)
-          : Object.assign({}, DEFAULT_RATES),
-        siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
-        lastBackup: typeof parsed.lastBackup === "string" ? parsed.lastBackup : "",
+
+      /* 中身を具体的に見せてから確認する。
+         「空のバックアップで全部消える」事故を防ぐため、件数を必ず並べて出す。 */
+      const inFile = {
+        c: parsed.contracts.length,
+        p: Object.keys(parsed.payments || {}).length,
+        t: Array.isArray(parsed.temps) ? parsed.temps.length : 0,
       };
+      const nowHas = {
+        c: data.contracts.length,
+        p: Object.keys(data.payments).length,
+        t: data.temps.length,
+      };
+      const shrinking = inFile.c < nowHas.c || inFile.p < nowHas.p || inFile.t < nowHas.t;
+
+      if (!confirm(
+        `復元するとこうなります。\n\n`
+        + `　　　　　　今      →   復元後\n`
+        + `契約者　　 ${nowHas.c}件    →   ${inFile.c}件\n`
+        + `入金記録　 ${nowHas.p}件    →   ${inFile.p}件\n`
+        + `一時利用　 ${nowHas.t}件    →   ${inFile.t}件\n\n`
+        + (shrinking ? "※ 件数が減ります。古い控えを選んでいませんか?\n\n" : "")
+        + `今のデータは、この後すぐ控えとして書き出します。\n続けますか?`)) return;
+
+      /* 上書きする前に、今のデータを必ず1部書き出しておく */
+      if (nowHas.c > 0 || nowHas.t > 0) await doBackup(true);
+
+      data = normalizeData(parsed);
       save(); renderAll();
       alert("復元しました。");
     } catch (e) {
-      alert("このファイルは読み込めませんでした。");
+      alert("このファイルは読み込めませんでした。\n"
+        + "バックアップで書き出した .json ファイルを選んでください。");
     } finally {
       ev.target.value = "";
     }
@@ -1396,11 +1540,20 @@ $("#cancelBtn").addEventListener("click", () => $("#editDlg").close());
 $("#deleteBtn").addEventListener("click", () => {
   if (!editingId) return;
   const c = data.contracts.find(x => x.id === editingId);
-  if (!confirm(`「${c ? c.name : ""}」さんを削除します。\n入金の記録も消えます。よろしいですか?`)) return;
+  const paidCount = Object.keys(data.payments)
+    .filter(k => k.indexOf(editingId + "@") === 0).length;
+
+  /* 入金記録は消さない。消すと過去の売上と確定申告の数字が変わってしまう。
+     「もう契約していない」という意味なら、削除ではなく解約済みにしてもらう。 */
+  const msg = paidCount > 0
+    ? `「${c ? c.name : ""}」さんを一覧から削除します。\n`
+      + `これまでの入金 ${paidCount}件の記録は、売上の集計に必要なため残します。\n\n`
+      + `※まだ契約が続いている方なら、削除ではなく「契約状態」を\n`
+      + `　解約済みに変える方をおすすめします。\n\n削除しますか?`
+    : `「${c ? c.name : ""}」さんを削除します。よろしいですか?`;
+  if (!confirm(msg)) return;
+
   data.contracts = data.contracts.filter(x => x.id !== editingId);
-  Object.keys(data.payments).forEach(k => {
-    if (k.startsWith(editingId + "@")) delete data.payments[k];
-  });
   save();
   $("#editDlg").close();
   renderAll();
