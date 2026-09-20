@@ -1,0 +1,6 @@
+# 改行コードをリポジトリ内では LF に統一する
+# (Windowsで編集してもGitHub上で差分が汚れないようにするため)
+* text=auto eol=lf
+
+# 画像はテキストとして扱わない
+*.png binary

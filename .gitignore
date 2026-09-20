@@ -1,0 +1,15 @@
+# Windows が勝手に作るファイル
+Thumbs.db
+desktop.ini
+
+# macOS が勝手に作るファイル
+.DS_Store
+
+# エディタの設定
+.vscode/
+.idea/
+
+# 実際の顧客データのバックアップは絶対にGitHubへ上げない
+*.backup.json
+駐輪場バックアップ*.json
+data/
