@@ -168,13 +168,13 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   nav.tabs button {
-    flex: 1; border: none; background: none; cursor: pointer;
-    padding: 10px 4px 12px; color: var(--text-dim);
-    font-size: 11px; font-weight: 600;
+    flex: 1; min-width: 0; border: none; background: none; cursor: pointer;
+    padding: 9px 2px 11px; color: var(--text-dim);
+    font-size: 10px; font-weight: 600; white-space: nowrap;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
   }
   nav.tabs button.active { color: var(--accent); }
-  nav.tabs button svg { width: 24px; height: 24px; }
+  nav.tabs button svg { width: 22px; height: 22px; flex-shrink: 0; }
 
   dialog {
     border: none; border-radius: 16px; padding: 0;
@@ -218,6 +218,8 @@
   <section id="view-home"></section>
   <section id="view-list" hidden></section>
   <section id="view-pay" hidden></section>
+  <section id="view-temp" hidden></section>
+  <section id="view-sales" hidden></section>
   <section id="view-settings" hidden></section>
 </main>
 
@@ -233,6 +235,14 @@
   <button data-tab="pay">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/></svg>
     入金
+  </button>
+  <button data-tab="temp">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+    一時
+  </button>
+  <button data-tab="sales">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V10M10 19.5V5M16 19.5v-6.5M21 19.5H3"/></svg>
+    売上
   </button>
   <button data-tab="settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
@@ -254,8 +264,15 @@
         <input name="slot" inputmode="numeric" placeholder="例: 12">
       </label>
       <label class="field">
-        <span class="lab">月額料金(円)</span>
-        <input name="fee" type="number" inputmode="numeric" min="0" step="100" placeholder="例: 1500">
+        <span class="lab">区分</span>
+        <select name="plan">
+          <option value="worker">社会人</option>
+          <option value="student">学生</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="lab">月額料金(円) — 空欄なら区分の料金が使われます</span>
+        <input name="fee" type="number" inputmode="numeric" min="0" step="100" id="feeInput">
       </label>
       <label class="field">
         <span class="lab">電話番号</span>
@@ -310,6 +327,38 @@
   </div>
 </dialog>
 
+<!-- 一時利用の受付・修正ダイアログ -->
+<dialog id="tempDlg">
+  <form method="dialog" id="tempForm">
+    <div class="dlg-head" id="tempTitle">一時利用の受付</div>
+    <div class="dlg-body">
+      <label class="field">
+        <span class="lab">車体の特徴</span>
+        <input name="note" id="tempNote" placeholder="例: 赤いママチャリ、カゴに青い袋">
+      </label>
+      <div style="display:flex;gap:10px">
+        <label class="field" style="flex:1">
+          <span class="lab">入庫時刻</span>
+          <input name="inAt" type="time">
+        </label>
+        <label class="field" style="flex:1">
+          <span class="lab">出庫時刻</span>
+          <input name="outAt" type="time">
+        </label>
+      </div>
+      <label class="field">
+        <span class="lab">料金(円)</span>
+        <input name="fee" type="number" inputmode="numeric" min="0" step="10">
+      </label>
+      <button type="button" class="btn danger block" id="tempDelete" hidden>この記録を削除</button>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn" id="tempCancel">キャンセル</button>
+      <button type="submit" class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 "use strict";
 
@@ -321,17 +370,45 @@ const STORE_KEY = "parking.v1";
 
 /* siteName(駐輪場の名前)は、この端末の中だけに保存されます。
    場所が特定されないよう、プログラム側には一切書き込みません。 */
-function freshData() { return { contracts: [], payments: {}, defaultFee: 1500, siteName: "" }; }
+const DEFAULT_RATES = { student: 2000, worker: 2500, daily: 100 };
+
+function freshData() {
+  return {
+    contracts: [],
+    payments: {},
+    temps: [],
+    rates: Object.assign({}, DEFAULT_RATES),
+    siteName: "",
+  };
+}
 
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return freshData();
     const parsed = JSON.parse(raw);
+
+    const contracts = Array.isArray(parsed.contracts) ? parsed.contracts : [];
+
+    const rates = Object.assign({}, DEFAULT_RATES);
+    if (parsed.rates && typeof parsed.rates === "object") {
+      ["student", "worker", "daily"].forEach(k => {
+        if (Number.isFinite(parsed.rates[k])) rates[k] = parsed.rates[k];
+      });
+    } else if (Number.isFinite(parsed.defaultFee)) {
+      /* 旧バージョンからの移行。
+         以前は全員が defaultFee だったので、金額が変わらないよう
+         個別料金として各契約者に書き込んでおく。 */
+      contracts.forEach(c => {
+        if (c.fee === "" || c.fee == null) c.fee = parsed.defaultFee;
+      });
+    }
+
     return {
-      contracts: Array.isArray(parsed.contracts) ? parsed.contracts : [],
+      contracts,
       payments: (parsed.payments && typeof parsed.payments === "object") ? parsed.payments : {},
-      defaultFee: Number.isFinite(parsed.defaultFee) ? parsed.defaultFee : 1500,
+      temps: Array.isArray(parsed.temps) ? parsed.temps : [],
+      rates,
       siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
     };
   } catch (e) {
@@ -375,8 +452,50 @@ function activeContracts() {
     .sort((a, b) => (Number(a.slot) || 9999) - (Number(b.slot) || 9999));
 }
 
+/* ===== 料金の計算 =====
+   契約期間は「1日〜月末まで」。
+   月の途中から契約した場合は、その月だけ日割りにする。
+   日割り = 当月停める日数 × 日額。ただし月額を超えないよう頭打ちにする。 */
+
+const PLAN_LABEL = { student: "学生", worker: "社会人" };
+
+function planOf(c) { return c.plan === "student" ? "student" : "worker"; }
+
+/* その契約者の月額。個別料金が入っていればそれを優先する */
 function feeOf(c) {
-  return Number.isFinite(Number(c.fee)) && c.fee !== "" ? Number(c.fee) : data.defaultFee;
+  if (c.fee !== "" && c.fee != null && Number.isFinite(Number(c.fee))) return Number(c.fee);
+  return data.rates[planOf(c)];
+}
+
+function daysInMonth(mKey) {
+  const [y, m] = mKey.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+/* 契約開始日が属する月かどうか */
+function isStartMonth(c, mKey) {
+  return Boolean(c.start) && c.start.slice(0, 7) === mKey;
+}
+
+/* mKey の月に、その契約者が実際に停める日数 */
+function daysUsedIn(c, mKey) {
+  const total = daysInMonth(mKey);
+  if (!isStartMonth(c, mKey)) return total;
+  const startDay = Number(c.start.slice(8, 10));
+  if (!Number.isFinite(startDay) || startDay < 1) return total;
+  return Math.max(0, total - startDay + 1);
+}
+
+/* mKey の月の請求額と、その内訳を返す */
+function chargeFor(c, mKey) {
+  const monthly = feeOf(c);
+  if (!isStartMonth(c, mKey)) {
+    return { amount: monthly, prorated: false, days: daysInMonth(mKey), capped: false };
+  }
+  const days = daysUsedIn(c, mKey);
+  const raw = days * data.rates.daily;
+  const capped = raw > monthly;
+  return { amount: Math.min(raw, monthly), prorated: true, days, capped, raw };
 }
 
 function escapeHtml(s) {
@@ -391,11 +510,22 @@ let viewMonth = monthKey(new Date());
 /* ===== ホーム画面 ===== */
 function renderHome() {
   const list = activeContracts();
-  const thisMonth = monthKey(new Date());
+  const now = new Date();
+  const thisMonth = monthKey(now);
   const unpaid = list.filter(c => !isPaid(c.id, thisMonth));
   const paidTotal = list.filter(c => isPaid(c.id, thisMonth))
-                        .reduce((s, c) => s + feeOf(c), 0);
-  const unpaidTotal = unpaid.reduce((s, c) => s + feeOf(c), 0);
+                        .reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
+  const unpaidTotal = unpaid.reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
+
+  const todayTemps = tempsOnDate(todayKey(now));
+  const todayTempTotal = todayTemps.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+
+  /* 契約は「1日〜月末まで」なので、月末が近づいたら翌月分の案内を出す */
+  const lastDay = daysInMonth(thisMonth);
+  const daysLeft = lastDay - now.getDate();
+  const nextMonth = shiftMonth(thisMonth, 1);
+  const notRenewed = list.filter(c => !isPaid(c.id, nextMonth));
+  const showRenewal = daysLeft <= 10 && notRenewed.length > 0;
 
   $("#view-home").innerHTML = `
     <div class="card">
@@ -414,7 +544,28 @@ function renderHome() {
           <div class="value">${escapeHtml(yen(unpaidTotal))}</div>
         </div>
       </div>
+      <p class="hint">
+        本日の一時利用 ${todayTemps.length}件 ${escapeHtml(yen(todayTempTotal))}
+        ・ 今月の合計 ${escapeHtml(yen(salesOfMonth(thisMonth).total))}
+      </p>
     </div>
+
+    ${!showRenewal ? "" : `
+    <div class="card" style="border-color:var(--warn)">
+      <h2 style="color:var(--warn)">更新のお知らせ (${notRenewed.length}件)</h2>
+      <p class="hint" style="margin:0 0 12px">
+        今月はあと${daysLeft}日です。${escapeHtml(monthLabel(nextMonth))}分がまだ入金されていない方がいます。
+      </p>
+      ${notRenewed.map(c => `
+        <div class="row">
+          <div class="slot">${escapeHtml(c.slot || "-")}</div>
+          <div class="main-col">
+            <div class="name">${escapeHtml(c.name)}</div>
+            <div class="meta">${escapeHtml(PLAN_LABEL[planOf(c)])} ・ ${escapeHtml(yen(chargeFor(c, nextMonth).amount))}${c.phone ? " ・ " + escapeHtml(c.phone) : ""}</div>
+          </div>
+          <button class="pill unpaid" data-renew="${escapeHtml(c.id)}">来月分</button>
+        </div>`).join("")}
+    </div>`}
 
     <div class="card">
       <h2>今月まだ入金のない方 (${unpaid.length}件)</h2>
@@ -422,16 +573,26 @@ function renderHome() {
         ? `<div class="empty">${list.length === 0
               ? "契約者がまだ登録されていません。<br>「契約者」タブから追加してください。"
               : "全員入金済みです。"}</div>`
-        : unpaid.map(c => `
+        : unpaid.map(c => {
+            const ch = chargeFor(c, thisMonth);
+            return `
           <div class="row">
             <div class="slot">${escapeHtml(c.slot || "-")}</div>
             <div class="main-col">
               <div class="name">${escapeHtml(c.name)}</div>
-              <div class="meta">${escapeHtml(yen(feeOf(c)))}${c.phone ? " ・ " + escapeHtml(c.phone) : ""}</div>
+              <div class="meta">${escapeHtml(yen(ch.amount))}${ch.prorated ? ` (日割り ${ch.days}日${ch.capped ? "・月額上限" : ""})` : ""}${c.phone ? " ・ " + escapeHtml(c.phone) : ""}</div>
             </div>
             <button class="pill unpaid" data-pay="${escapeHtml(c.id)}">受け取る</button>
-          </div>`).join("")}
+          </div>`;
+          }).join("")}
     </div>`;
+
+  $("#view-home").querySelectorAll("[data-renew]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      togglePay(btn.dataset.renew, nextMonth);
+      renderAll();
+    });
+  });
 
   $("#view-home").querySelectorAll("[data-pay]").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -463,7 +624,7 @@ function renderList() {
             <div class="slot">${escapeHtml(c.slot || "-")}</div>
             <div class="main-col">
               <div class="name">${escapeHtml(c.name)}${c.active === false ? "(解約)" : ""}</div>
-              <div class="meta">${escapeHtml(yen(feeOf(c)))}${c.note ? " ・ " + escapeHtml(c.note) : ""}</div>
+              <div class="meta">${escapeHtml(PLAN_LABEL[planOf(c)])} ・ ${escapeHtml(yen(feeOf(c)))}${c.note ? " ・ " + escapeHtml(c.note) : ""}</div>
             </div>
             <div style="color:var(--text-dim)">›</div>
           </div>`).join("")}
@@ -480,7 +641,7 @@ function renderList() {
 function renderPay() {
   const list = activeContracts();
   const paid = list.filter(c => isPaid(c.id, viewMonth));
-  const total = paid.reduce((s, c) => s + feeOf(c), 0);
+  const total = paid.reduce((s, c) => s + chargeFor(c, viewMonth).amount, 0);
 
   $("#view-pay").innerHTML = `
     <div class="month-bar">
@@ -504,12 +665,13 @@ function renderPay() {
         ? `<div class="empty">契約中の方がいません。</div>`
         : list.map(c => {
             const p = isPaid(c.id, viewMonth);
+            const ch = chargeFor(c, viewMonth);
             return `
             <div class="row">
               <div class="slot">${escapeHtml(c.slot || "-")}</div>
               <div class="main-col">
                 <div class="name">${escapeHtml(c.name)}</div>
-                <div class="meta">${escapeHtml(yen(feeOf(c)))}</div>
+                <div class="meta">${escapeHtml(yen(ch.amount))}${ch.prorated ? ` (日割り ${ch.days}日${ch.capped ? "・月額上限" : ""})` : ""}</div>
               </div>
               <button class="pill ${p ? "paid" : "unpaid"}" data-toggle="${escapeHtml(c.id)}">
                 ${p ? "入金済み" : "未入金"}
@@ -534,9 +696,288 @@ function togglePay(contractId, mKey) {
     delete data.payments[k];
   } else {
     const c = data.contracts.find(x => x.id === contractId);
-    data.payments[k] = { at: new Date().toISOString(), amount: c ? feeOf(c) : 0 };
+    const ch = c ? chargeFor(c, mKey) : { amount: 0, prorated: false, days: 0 };
+    data.payments[k] = {
+      at: new Date().toISOString(),
+      amount: ch.amount,
+      prorated: ch.prorated,
+      days: ch.days,
+    };
   }
   save();
+}
+
+/* ===== 一時利用の画面 ===== */
+let tempDate = todayKey();
+
+function renderTemp() {
+  const list = tempsOnDate(tempDate);
+  const inNow = list.filter(t => !t.outAt);
+  const total = list.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+
+  $("#view-temp").innerHTML = `
+    <div class="month-bar">
+      <button class="btn" id="prevD">‹</button>
+      <div class="m">${escapeHtml(dateLabel(tempDate))}</div>
+      <button class="btn" id="nextD">›</button>
+    </div>
+
+    <button class="btn primary block" id="tempAdd" style="margin-bottom:14px">
+      ＋ 受付する(${escapeHtml(yen(data.rates.daily))})
+    </button>
+
+    <div class="card">
+      <h2>この日の集計</h2>
+      <div class="stats">
+        <div class="stat"><div class="label">受付</div><div class="value">${list.length}</div></div>
+        <div class="stat warn"><div class="label">まだ在庫</div><div class="value">${inNow.length}</div></div>
+        <div class="stat ok"><div class="label">売上</div><div class="value">${escapeHtml(yen(total))}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>受付一覧</h2>
+      ${list.length === 0
+        ? `<div class="empty">この日の一時利用はまだありません。</div>`
+        : list.map(t => `
+          <div class="row ${t.outAt ? "inactive" : ""}">
+            <div class="slot" style="width:62px;font-size:13px">${escapeHtml(t.inAt || "--:--")}</div>
+            <div class="main-col">
+              <div class="name">${escapeHtml(t.note || "(特徴の記入なし)")}</div>
+              <div class="meta">
+                ${escapeHtml(yen(t.fee))}
+                ${t.outAt ? " ・ " + escapeHtml(t.outAt) + " 出庫" : " ・ 在庫中"}
+              </div>
+            </div>
+            <button class="pill ${t.outAt ? "paid" : "unpaid"}" data-out="${escapeHtml(t.id)}">
+              ${t.outAt ? "出庫済み" : "出庫"}
+            </button>
+          </div>`).join("")}
+    </div>
+
+    ${list.length === 0 ? "" : `
+      <button class="btn danger block" id="tempEditMode">記録を修正・削除する</button>`}`;
+
+  $("#prevD").addEventListener("click", () => { tempDate = shiftDate(tempDate, -1); renderTemp(); });
+  $("#nextD").addEventListener("click", () => { tempDate = shiftDate(tempDate, 1); renderTemp(); });
+  $("#tempAdd").addEventListener("click", () => openTemp(null));
+
+  $("#view-temp").querySelectorAll("[data-out]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const t = data.temps.find(x => x.id === btn.dataset.out);
+      if (!t) return;
+      t.outAt = t.outAt ? "" : nowTime();
+      save(); renderTemp();
+    });
+  });
+
+  const em = $("#tempEditMode");
+  if (em) em.addEventListener("click", () => {
+    alert("修正したい行の時刻の部分をタップしてください。");
+  });
+
+  $("#view-temp").querySelectorAll(".row .slot").forEach((el, i) => {
+    el.style.cursor = "pointer";
+    el.addEventListener("click", () => openTemp(list[i].id));
+  });
+}
+
+function shiftDate(key, delta) {
+  const [y, m, d] = key.split("-").map(Number);
+  return todayKey(new Date(y, m - 1, d + delta));
+}
+
+let editingTempId = null;
+
+function openTemp(id) {
+  editingTempId = id;
+  const f = $("#tempForm");
+  const t = id ? data.temps.find(x => x.id === id) : null;
+
+  $("#tempTitle").textContent = t ? "記録を修正" : "一時利用の受付";
+  f.note.value = t ? (t.note || "") : "";
+  f.inAt.value = t ? (t.inAt || "") : nowTime();
+  f.outAt.value = t ? (t.outAt || "") : "";
+  f.fee.value = t ? (Number(t.fee) || 0) : data.rates.daily;
+  $("#tempDelete").hidden = !t;
+
+  $("#tempDlg").showModal();
+  if (!t) setTimeout(() => { try { $("#tempNote").focus(); } catch (e) {} }, 50);
+}
+
+$("#tempForm").addEventListener("submit", () => {
+  const f = $("#tempForm");
+  const rec = {
+    note: f.note.value.trim(),
+    inAt: f.inAt.value,
+    outAt: f.outAt.value,
+    fee: f.fee.value === "" ? data.rates.daily : Number(f.fee.value),
+  };
+  if (editingTempId) {
+    const t = data.temps.find(x => x.id === editingTempId);
+    if (t) Object.assign(t, rec);
+  } else {
+    data.temps.push(Object.assign({
+      id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      date: tempDate,
+    }, rec));
+  }
+  save();
+  setTimeout(renderAll, 0);
+});
+
+$("#tempCancel").addEventListener("click", () => $("#tempDlg").close());
+
+$("#tempDelete").addEventListener("click", () => {
+  if (!editingTempId) return;
+  if (!confirm("この一時利用の記録を削除します。よろしいですか?")) return;
+  data.temps = data.temps.filter(x => x.id !== editingTempId);
+  save();
+  $("#tempDlg").close();
+  renderAll();
+});
+
+/* ===== 売上の集計と書き出し ===== */
+let salesYear = new Date().getFullYear();
+
+/* mKey の月の売上を、月極と一時利用に分けて集計する */
+function salesOfMonth(mKey) {
+  let monthly = 0, monthlyCount = 0;
+  Object.keys(data.payments).forEach(k => {
+    if (k.slice(k.indexOf("@") + 1) !== mKey) return;
+    monthly += Number(data.payments[k].amount) || 0;
+    monthlyCount++;
+  });
+  const temps = tempsInMonth(mKey);
+  const temp = temps.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+  return { monthly, monthlyCount, temp, tempCount: temps.length, total: monthly + temp };
+}
+
+function renderSales() {
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    const mKey = salesYear + "-" + String(m).padStart(2, "0");
+    months.push(Object.assign({ mKey, m }, salesOfMonth(mKey)));
+  }
+  const yearTotal = months.reduce((s, x) => s + x.total, 0);
+  const yearMonthly = months.reduce((s, x) => s + x.monthly, 0);
+  const yearTemp = months.reduce((s, x) => s + x.temp, 0);
+
+  $("#view-sales").innerHTML = `
+    <div class="month-bar">
+      <button class="btn" id="prevY">‹</button>
+      <div class="m">${salesYear}年</div>
+      <button class="btn" id="nextY">›</button>
+    </div>
+
+    <div class="card">
+      <h2>${salesYear}年の合計</h2>
+      <div class="stats">
+        <div class="stat"><div class="label">月極</div><div class="value">${escapeHtml(yen(yearMonthly))}</div></div>
+        <div class="stat"><div class="label">一時利用</div><div class="value">${escapeHtml(yen(yearTemp))}</div></div>
+        <div class="stat ok"><div class="label">総額</div><div class="value">${escapeHtml(yen(yearTotal))}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>月ごとの内訳</h2>
+      ${months.map(x => `
+        <div class="row ${x.total === 0 ? "inactive" : ""}">
+          <div class="slot" style="width:44px">${x.m}月</div>
+          <div class="main-col">
+            <div class="name">${escapeHtml(yen(x.total))}</div>
+            <div class="meta">月極 ${x.monthlyCount}件 ${escapeHtml(yen(x.monthly))} ・ 一時 ${x.tempCount}件 ${escapeHtml(yen(x.temp))}</div>
+          </div>
+        </div>`).join("")}
+    </div>
+
+    <div class="card">
+      <h2>確定申告用の書き出し</h2>
+      <p class="hint" style="margin:0 0 12px">
+        1件ごとの明細をCSVで書き出します。Excelでそのまま開けます。
+      </p>
+      <button class="btn block" id="csvYear" style="margin-bottom:10px">${salesYear}年の明細を書き出す</button>
+      <button class="btn block" id="csvSummary">${salesYear}年の月別集計を書き出す</button>
+    </div>`;
+
+  $("#prevY").addEventListener("click", () => { salesYear--; renderSales(); });
+  $("#nextY").addEventListener("click", () => { salesYear++; renderSales(); });
+  $("#csvYear").addEventListener("click", () => exportDetailCsv(salesYear));
+  $("#csvSummary").addEventListener("click", () => exportSummaryCsv(salesYear));
+}
+
+/* CSVの1項目を安全な形に整える */
+function csvCell(v) {
+  const s = String(v == null ? "" : v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/* ExcelはBOMが無いと日本語を文字化けさせるので先頭に付ける */
+function downloadCsv(rows, filename) {
+  const body = rows.map(r => r.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + body], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportDetailCsv(year) {
+  const rows = [["日付", "区分", "氏名または特徴", "区画", "内訳", "金額"]];
+  const items = [];
+
+  Object.keys(data.payments).forEach(k => {
+    const mKey = k.slice(k.indexOf("@") + 1);
+    if (mKey.slice(0, 4) !== String(year)) return;
+    const p = data.payments[k];
+    const c = data.contracts.find(x => x.id === k.slice(0, k.indexOf("@")));
+    items.push({
+      sort: mKey + "-00",
+      row: [
+        mKey, "月極",
+        c ? c.name : "(削除済み)",
+        c ? (c.slot || "") : "",
+        p.prorated ? `日割り ${p.days}日` : "月額",
+        Number(p.amount) || 0,
+      ],
+    });
+  });
+
+  data.temps.forEach(t => {
+    if (String(t.date).slice(0, 4) !== String(year)) return;
+    items.push({
+      sort: t.date + "-" + (t.inAt || ""),
+      row: [
+        t.date, "一時利用",
+        t.note || "",
+        "",
+        (t.inAt || "") + (t.outAt ? "〜" + t.outAt : ""),
+        Number(t.fee) || 0,
+      ],
+    });
+  });
+
+  items.sort((a, b) => a.sort.localeCompare(b.sort));
+  items.forEach(x => rows.push(x.row));
+
+  const total = items.reduce((s, x) => s + (Number(x.row[5]) || 0), 0);
+  rows.push([]);
+  rows.push(["", "", "", "", "合計", total]);
+
+  if (items.length === 0) { alert(`${year}年の記録がありません。`); return; }
+  downloadCsv(rows, `売上明細_${year}年.csv`);
+}
+
+function exportSummaryCsv(year) {
+  const rows = [["月", "月極件数", "月極金額", "一時利用件数", "一時利用金額", "合計"]];
+  let t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+  for (let m = 1; m <= 12; m++) {
+    const s = salesOfMonth(year + "-" + String(m).padStart(2, "0"));
+    rows.push([m + "月", s.monthlyCount, s.monthly, s.tempCount, s.temp, s.total]);
+    t1 += s.monthlyCount; t2 += s.monthly; t3 += s.tempCount; t4 += s.temp;
+  }
+  rows.push(["合計", t1, t2, t3, t4, t2 + t4]);
+  downloadCsv(rows, `売上集計_${year}年.csv`);
 }
 
 /* ===== 設定・バックアップ ===== */
@@ -555,12 +996,24 @@ function renderSettings() {
     </div>
 
     <div class="card">
-      <h2>標準の月額料金</h2>
+      <h2>料金の設定</h2>
       <label class="field">
-        <span class="lab">契約者ごとに料金を入れない場合、この金額が使われます</span>
-        <input type="number" id="defFee" min="0" step="100" value="${escapeHtml(data.defaultFee)}">
+        <span class="lab">学生の月額(円)</span>
+        <input type="number" id="rateStudent" min="0" step="100" value="${escapeHtml(data.rates.student)}">
+      </label>
+      <label class="field">
+        <span class="lab">社会人の月額(円)</span>
+        <input type="number" id="rateWorker" min="0" step="100" value="${escapeHtml(data.rates.worker)}">
+      </label>
+      <label class="field">
+        <span class="lab">1日あたりの料金(円) — 日割りと一時利用に使われます</span>
+        <input type="number" id="rateDaily" min="0" step="10" value="${escapeHtml(data.rates.daily)}">
       </label>
       <button class="btn primary block" id="saveFee">保存する</button>
+      <p class="hint">
+        契約は1日から月末までです。月の途中から契約した場合、その月だけ
+        「停める日数 × 1日あたりの料金」で計算し、月額を超えるときは月額で止めます。
+      </p>
     </div>
 
     <div class="card">
@@ -578,6 +1031,7 @@ function renderSettings() {
       <h2>この端末のデータ</h2>
       <p class="hint">
         契約者 ${data.contracts.length}件 / 入金記録 ${Object.keys(data.payments).length}件
+        / 一時利用 ${data.temps.length}件
       </p>
     </div>`;
 
@@ -588,9 +1042,14 @@ function renderSettings() {
   });
 
   $("#saveFee").addEventListener("click", () => {
-    const v = Number($("#defFee").value);
-    if (!Number.isFinite(v) || v < 0) { alert("正しい金額を入力してください。"); return; }
-    data.defaultFee = v; save(); renderAll();
+    const vals = {
+      student: Number($("#rateStudent").value),
+      worker: Number($("#rateWorker").value),
+      daily: Number($("#rateDaily").value),
+    };
+    const bad = Object.keys(vals).some(k => !Number.isFinite(vals[k]) || vals[k] < 0);
+    if (bad) { alert("正しい金額を入力してください。"); return; }
+    data.rates = vals; save(); renderAll();
     alert("保存しました。");
   });
 
@@ -615,7 +1074,10 @@ function renderSettings() {
       data = {
         contracts: parsed.contracts,
         payments: parsed.payments || {},
-        defaultFee: Number.isFinite(parsed.defaultFee) ? parsed.defaultFee : 1500,
+        temps: Array.isArray(parsed.temps) ? parsed.temps : [],
+        rates: (parsed.rates && typeof parsed.rates === "object")
+          ? Object.assign({}, DEFAULT_RATES, parsed.rates)
+          : Object.assign({}, DEFAULT_RATES),
         siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
       };
       save(); renderAll();
@@ -639,7 +1101,9 @@ function openEdit(id) {
   $("#editTitle").textContent = c ? "契約者を編集" : "契約者を追加";
   form.name.value = c ? (c.name || "") : "";
   form.slot.value = c ? (c.slot || "") : "";
+  form.plan.value = c ? planOf(c) : "worker";
   form.fee.value = c && c.fee !== "" && c.fee != null ? c.fee : "";
+  syncFeePlaceholder();
   form.phone.value = c ? (c.phone || "") : "";
   form.start.value = c ? (c.start || "") : "";
   form.note.value = c ? (c.note || "") : "";
@@ -649,12 +1113,22 @@ function openEdit(id) {
   $("#editDlg").showModal();
 }
 
+/* 区分を選んだら、その区分の標準額を薄い文字で見せる */
+function syncFeePlaceholder() {
+  const form = $("#editForm");
+  const plan = form.plan.value === "student" ? "student" : "worker";
+  $("#feeInput").placeholder = `${PLAN_LABEL[plan]}の標準額 ${data.rates[plan]}`;
+}
+
+$("#editForm").plan.addEventListener("change", syncFeePlaceholder);
+
 $("#editForm").addEventListener("submit", (ev) => {
   const form = ev.target;
   const rec = {
     id: editingId || ("c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
     name: form.name.value.trim(),
     slot: form.slot.value.trim(),
+    plan: form.plan.value === "student" ? "student" : "worker",
     fee: form.fee.value === "" ? "" : Number(form.fee.value),
     phone: form.phone.value.trim(),
     start: form.start.value,
@@ -683,6 +1157,33 @@ $("#deleteBtn").addEventListener("click", () => {
   $("#editDlg").close();
   renderAll();
 });
+
+/* ===== 一時利用(日払い) =====
+   1件ごとに、日付・入庫時刻・出庫時刻・車体の特徴・料金を記録する。 */
+
+function todayKey(d) {
+  const t = d || new Date();
+  return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0")
+         + "-" + String(t.getDate()).padStart(2, "0");
+}
+function nowTime() {
+  const t = new Date();
+  return String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
+}
+function dateLabel(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()];
+  return `${m}月${d}日(${w})`;
+}
+
+function tempsOnDate(dateKey) {
+  return data.temps
+    .filter(t => t.date === dateKey)
+    .sort((a, b) => String(b.inAt).localeCompare(String(a.inAt)));
+}
+function tempsInMonth(mKey) {
+  return data.temps.filter(t => String(t.date).slice(0, 7) === mKey);
+}
 
 /* ===== まとめて追加 ===== */
 
@@ -723,6 +1224,16 @@ function toHalfWidth(s) {
     .trim();
 }
 
+/* 電話番号らしき文字列かどうか。
+   金額の列を省いて電話番号だけ書かれた名簿で、
+   電話番号を金額と取り違えないために使う。 */
+function looksLikePhone(s) {
+  const t = toHalfWidth(s);
+  const digits = t.replace(/[^\d]/g, "");
+  if (digits.length >= 10) return true;
+  return t.indexOf("-") >= 0 && digits.length >= 9;
+}
+
 function parseBulk(text) {
   const rows = [];
   const errors = [];
@@ -733,7 +1244,16 @@ function parseBulk(text) {
     let cells = splitLine(line);
 
     // 見出し行(1行目に「名前」「氏名」などが入っている)は読み飛ばす
-    if (i === 0 && cells.some(c => /名前|氏名|区画|番号|月額|料金|電話/.test(c))) return;
+    if (i === 0 && cells.some(c => /名前|氏名|区画|番号|月額|料金|電話|区分/.test(c))) return;
+
+    /* 「学生」「社会人」だけが入った列を先に取り出して除く。
+       こうしないと後ろの列が1つずつずれてしまう。 */
+    let plan = "worker";
+    const planIdx = cells.findIndex(c => /^(学生|社会人|学|社)$/.test(c.trim()));
+    if (planIdx >= 0) {
+      plan = /^(学生|学)$/.test(cells[planIdx].trim()) ? "student" : "worker";
+      cells = cells.slice(0, planIdx).concat(cells.slice(planIdx + 1));
+    }
 
     // 列が1つだけならお名前とみなす
     let slot = "", name = "", fee = "", phone = "";
@@ -757,11 +1277,15 @@ function parseBulk(text) {
     name = name.trim();
     if (!name) { errors.push(`${i + 1}行目: お名前が読み取れませんでした`); return; }
 
+    /* 金額の欄に電話番号が入っている場合は電話番号として扱う */
+    if (fee && !phone && looksLikePhone(fee)) { phone = fee; fee = ""; }
+
     const feeNum = toHalfWidth(fee).replace(/[^\d]/g, "");
     rows.push({
       line: i + 1,
       slot,
       name,
+      plan,
       fee: feeNum === "" ? "" : Number(feeNum),
       phone: toHalfWidth(phone),
     });
@@ -793,7 +1317,7 @@ function renderBulkPreview() {
           <div class="slot">${escapeHtml(r.slot || "-")}</div>
           <div class="main-col">
             <div class="name">${escapeHtml(r.name)}</div>
-            <div class="meta">${escapeHtml(r.fee === "" ? "標準額 " + yen(data.defaultFee) : yen(r.fee))}${r.phone ? " ・ " + escapeHtml(r.phone) : ""}</div>
+            <div class="meta">${escapeHtml(PLAN_LABEL[r.plan])} ・ ${escapeHtml(r.fee === "" ? "標準額 " + yen(data.rates[r.plan]) : yen(r.fee))}${r.phone ? " ・ " + escapeHtml(r.phone) : ""}</div>
           </div>
         </div>`).join("")}
       ${errors.concat(warn).length === 0 ? "" : `
@@ -848,7 +1372,7 @@ $("#bulkCommit").addEventListener("click", () => {
   bulkParsed.rows.forEach((r, i) => {
     data.contracts.push({
       id: "c" + Date.now().toString(36) + i.toString(36) + Math.random().toString(36).slice(2, 5),
-      name: r.name, slot: r.slot, fee: r.fee, phone: r.phone,
+      name: r.name, slot: r.slot, plan: r.plan, fee: r.fee, phone: r.phone,
       start: "", note: "", active: true,
     });
   });
@@ -863,6 +1387,8 @@ const TAB_TITLES = {
   home: "今月の状況",
   list: "契約者",
   pay: "入金の記録",
+  temp: "一時利用",
+  sales: "売上",
   settings: "設定",
 };
 
@@ -879,12 +1405,14 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
 function renderAll() {
   $("#pageTitle").textContent = TAB_TITLES[currentTab];
   $("#pageSub").textContent = data.siteName || "月極・入金の管理";
-  ["home", "list", "pay", "settings"].forEach(t => {
+  ["home", "list", "pay", "temp", "sales", "settings"].forEach(t => {
     $("#view-" + t).hidden = (t !== currentTab);
   });
   if (currentTab === "home") renderHome();
   else if (currentTab === "list") renderList();
   else if (currentTab === "pay") renderPay();
+  else if (currentTab === "temp") renderTemp();
+  else if (currentTab === "sales") renderSales();
   else renderSettings();
 }
 
