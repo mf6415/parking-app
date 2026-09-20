@@ -155,11 +155,28 @@
     margin-bottom: 5px; font-weight: 600;
   }
   label.field input, label.field select, label.field textarea {
-    width: 100%; min-height: var(--tap);
+    width: 100%; min-width: 0; max-width: 100%;
+    min-height: var(--tap);
     padding: 10px 12px; border: 1px solid var(--border);
     border-radius: 10px; background: var(--bg); color: var(--text);
+    font-size: 16px; /* iOSで入力時に画面が拡大するのを防ぐ */
+    -webkit-appearance: none; appearance: none;
+  }
+  label.field select {
+    /* 端末標準の下向き矢印が消えるので、自前で描く */
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: right 18px center, right 13px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 34px;
   }
   label.field textarea { min-height: 76px; resize: vertical; }
+
+  /* 2つの入力を横に並べる行。
+     min-width:0 が無いと、時刻入力が自分の幅を主張して隣と重なる。 */
+  .field-row { display: flex; gap: 10px; }
+  .field-row > label.field { flex: 1 1 0; min-width: 0; }
 
   nav.tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -182,15 +199,23 @@
     width: min(520px, calc(100vw - 32px)); max-height: 88vh;
   }
   dialog::backdrop { background: rgba(0,0,0,.5); }
-  .dlg-head {
-    padding: 16px; border-bottom: 1px solid var(--border);
-    font-weight: 700; position: sticky; top: 0; background: var(--surface);
+
+  /* 中身が長いときは本文だけがスクロールし、
+     見出しと操作ボタンは常に見えるようにする */
+  dialog > form, dialog > .dlg-wrap {
+    display: flex; flex-direction: column; max-height: 88vh;
   }
-  .dlg-body { padding: 16px; overflow-y: auto; }
+  .dlg-head {
+    flex: 0 0 auto;
+    padding: 16px; border-bottom: 1px solid var(--border);
+    font-weight: 700; background: var(--surface);
+  }
+  .dlg-body { flex: 1 1 auto; min-height: 0; padding: 16px; overflow-y: auto; }
   .dlg-foot {
+    flex: 0 0 auto;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
-    display: flex; gap: 10px; position: sticky; bottom: 0; background: var(--surface);
+    display: flex; gap: 10px; background: var(--surface);
   }
   .dlg-foot .btn { flex: 1; }
 
@@ -304,6 +329,7 @@
 
 <!-- まとめて追加ダイアログ -->
 <dialog id="bulkDlg">
+ <div class="dlg-wrap">
   <div class="dlg-head">契約者をまとめて追加</div>
   <div class="dlg-body">
     <p class="hint" style="margin:0 0 12px">
@@ -325,6 +351,7 @@
     <button type="button" class="btn" id="bulkCancel">キャンセル</button>
     <button type="button" class="btn primary" id="bulkCommit" disabled>追加する</button>
   </div>
+ </div>
 </dialog>
 
 <!-- 一時利用の受付・修正ダイアログ -->
@@ -332,22 +359,22 @@
   <form method="dialog" id="tempForm">
     <div class="dlg-head" id="tempTitle">一時利用の受付</div>
     <div class="dlg-body">
-      <div style="display:flex;gap:10px">
-        <label class="field" style="flex:1">
+      <div class="field-row">
+        <label class="field">
           <span class="lab">車体の色</span>
           <select name="color" id="tempColor"></select>
         </label>
-        <label class="field" style="flex:1">
+        <label class="field">
           <span class="lab">カゴ</span>
           <select name="basket"></select>
         </label>
       </div>
-      <div style="display:flex;gap:10px">
-        <label class="field" style="flex:1">
+      <div class="field-row">
+        <label class="field">
           <span class="lab">年代</span>
           <select name="age"></select>
         </label>
-        <label class="field" style="flex:1">
+        <label class="field">
           <span class="lab">性別</span>
           <select name="gender"></select>
         </label>
@@ -356,12 +383,12 @@
         <span class="lab">その他のメモ</span>
         <input name="note" placeholder="例: カゴに青い袋">
       </label>
-      <div style="display:flex;gap:10px">
-        <label class="field" style="flex:1">
+      <div class="field-row">
+        <label class="field">
           <span class="lab">入庫時刻</span>
           <input name="inAt" type="time">
         </label>
-        <label class="field" style="flex:1">
+        <label class="field">
           <span class="lab">出庫時刻</span>
           <input name="outAt" type="time">
         </label>
@@ -391,6 +418,28 @@ const STORE_KEY = "parking.v1";
 /* siteName(駐輪場の名前)は、この端末の中だけに保存されます。
    場所が特定されないよう、プログラム側には一切書き込みません。 */
 const DEFAULT_RATES = { student: 2000, worker: 2500, daily: 100 };
+
+/* 一時利用で記録する特徴の選択肢。
+   どれも未選択のままにできる(分からない場合や、聞けなかった場合のため)。
+   load() より先に読み込む必要があるため、ここに置いている。 */
+const TEMP_FIELDS = {
+  color:  { label: "色",   options: ["シルバー", "ピンク", "黒", "茶色", "緑", "黄緑", "水色", "紫", "その他"] },
+  basket: { label: "カゴ", options: ["あり(前)", "あり(後)", "あり(前後)", "なし"] },
+  age:    { label: "年代", options: ["30代", "40代", "50代", "60代", "70代", "80代"] },
+  gender: { label: "性別", options: ["男", "女"] },
+};
+
+/* 古い書き方で保存された値を、今の選択肢に読み替える。
+   「前後」は「あり(前後)」、単なる「あり」は「あり(前)」として扱う。 */
+const TEMP_ALIAS = { basket: { "前後": "あり(前後)", "あり": "あり(前)" } };
+
+function normalizeTemp(t) {
+  Object.keys(TEMP_ALIAS).forEach(key => {
+    const map = TEMP_ALIAS[key];
+    if (t && t[key] && map[t[key]]) t[key] = map[t[key]];
+  });
+  return t;
+}
 
 function freshData() {
   return {
@@ -428,7 +477,7 @@ function load() {
     return {
       contracts,
       payments: (parsed.payments && typeof parsed.payments === "object") ? parsed.payments : {},
-      temps: Array.isArray(parsed.temps) ? parsed.temps : [],
+      temps: (Array.isArray(parsed.temps) ? parsed.temps : []).map(normalizeTemp),
       rates,
       siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
       lastBackup: typeof parsed.lastBackup === "string" ? parsed.lastBackup : "",
@@ -468,10 +517,17 @@ function shiftMonth(key, delta) {
 function payKey(contractId, mKey) { return contractId + "@" + mKey; }
 function isPaid(contractId, mKey) { return Boolean(data.payments[payKey(contractId, mKey)]); }
 
+/* 区画番号の並び順。数字は小さい順、番号なしや文字の区画は最後に回す。
+   Number("0") は偽と判定されるため、|| は使えない。 */
+function slotOrder(c) {
+  const n = Number(c.slot);
+  return (c.slot !== "" && c.slot != null && Number.isFinite(n)) ? n : Infinity;
+}
+
 function activeContracts() {
   return data.contracts
     .filter(c => c.active !== false)
-    .sort((a, b) => (Number(a.slot) || 9999) - (Number(b.slot) || 9999));
+    .sort((a, b) => slotOrder(a) - slotOrder(b));
 }
 
 /* ===== 料金の計算 =====
@@ -628,7 +684,7 @@ function renderHome() {
 function renderList() {
   const list = [...data.contracts].sort((a, b) => {
     if ((a.active !== false) !== (b.active !== false)) return a.active === false ? 1 : -1;
-    return (Number(a.slot) || 9999) - (Number(b.slot) || 9999);
+    return slotOrder(a) - slotOrder(b);
   });
 
   $("#view-list").innerHTML = `
@@ -667,9 +723,9 @@ function renderPay() {
 
   $("#view-pay").innerHTML = `
     <div class="month-bar">
-      <button class="btn" id="prevM">‹</button>
+      <button class="btn" id="prevM" aria-label="前の月">‹</button>
       <div class="m">${escapeHtml(monthLabel(viewMonth))}</div>
-      <button class="btn" id="nextM">›</button>
+      <button class="btn" id="nextM" aria-label="次の月">›</button>
     </div>
 
     <div class="card">
@@ -739,9 +795,9 @@ function renderTemp() {
 
   $("#view-temp").innerHTML = `
     <div class="month-bar">
-      <button class="btn" id="prevD">‹</button>
+      <button class="btn" id="prevD" aria-label="前の日">‹</button>
       <div class="m">${escapeHtml(dateLabel(tempDate))}</div>
-      <button class="btn" id="nextD">›</button>
+      <button class="btn" id="nextD" aria-label="次の日">›</button>
     </div>
 
     <button class="btn primary block" id="tempAdd" style="margin-bottom:14px">
@@ -752,7 +808,7 @@ function renderTemp() {
       <h2>この日の集計</h2>
       <div class="stats">
         <div class="stat"><div class="label">受付</div><div class="value">${list.length}</div></div>
-        <div class="stat warn"><div class="label">まだ在庫</div><div class="value">${inNow.length}</div></div>
+        <div class="stat warn"><div class="label">未出庫</div><div class="value">${inNow.length}</div></div>
         <div class="stat ok"><div class="label">売上</div><div class="value">${escapeHtml(yen(total))}</div></div>
       </div>
     </div>
@@ -762,30 +818,32 @@ function renderTemp() {
       ${list.length === 0
         ? `<div class="empty">この日の一時利用はまだありません。</div>`
         : list.map(t => `
-          <div class="row ${t.outAt ? "inactive" : ""}">
+          <div class="row ${t.outAt ? "inactive" : ""}" data-edit-temp="${escapeHtml(t.id)}"
+               style="cursor:pointer">
             <div class="slot" style="width:62px;font-size:13px">${escapeHtml(t.inAt || "--:--")}</div>
             <div class="main-col">
               <div class="name">${escapeHtml(tempSummary(t) || "(特徴の記入なし)")}</div>
               <div class="meta">
                 ${escapeHtml(yen(t.fee))}
-                ${t.outAt ? " ・ " + escapeHtml(t.outAt) + " 出庫" : " ・ 在庫中"}
+                ${t.outAt ? " ・ " + escapeHtml(t.outAt) + " 出庫" : " ・ 未出庫"}
               </div>
             </div>
             <button class="pill ${t.outAt ? "paid" : "unpaid"}" data-out="${escapeHtml(t.id)}">
               ${t.outAt ? "出庫済み" : "出庫"}
             </button>
           </div>`).join("")}
-    </div>
-
-    ${list.length === 0 ? "" : `
-      <button class="btn danger block" id="tempEditMode">記録を修正・削除する</button>`}`;
+      ${list.length === 0 ? "" :
+        `<p class="hint">行をタップすると、特徴や時刻の修正・削除ができます。</p>`}
+    </div>`;
 
   $("#prevD").addEventListener("click", () => { tempDate = shiftDate(tempDate, -1); renderTemp(); });
   $("#nextD").addEventListener("click", () => { tempDate = shiftDate(tempDate, 1); renderTemp(); });
   $("#tempAdd").addEventListener("click", () => openTemp(null));
 
   $("#view-temp").querySelectorAll("[data-out]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      /* 行全体にも修正用のタップが付いているので、そちらへ伝えない */
+      ev.stopPropagation();
       const t = data.temps.find(x => x.id === btn.dataset.out);
       if (!t) return;
       t.outAt = t.outAt ? "" : nowTime();
@@ -793,14 +851,8 @@ function renderTemp() {
     });
   });
 
-  const em = $("#tempEditMode");
-  if (em) em.addEventListener("click", () => {
-    alert("修正したい行の時刻の部分をタップしてください。");
-  });
-
-  $("#view-temp").querySelectorAll(".row .slot").forEach((el, i) => {
-    el.style.cursor = "pointer";
-    el.addEventListener("click", () => openTemp(list[i].id));
+  $("#view-temp").querySelectorAll("[data-edit-temp]").forEach(row => {
+    row.addEventListener("click", () => openTemp(row.dataset.editTemp));
   });
 }
 
@@ -811,22 +863,27 @@ function shiftDate(key, delta) {
 
 let editingTempId = null;
 
-/* 選択肢を1度だけ組み立てる。先頭は「未選択」の空欄。 */
-function buildTempSelects() {
+/* 選択肢を組み立てる。先頭は「未選択」の空欄。
+   既存の記録が選択肢に無い値を持っている場合は、その値も選択肢に足す。
+   こうしないと、編集して保存した瞬間にその値が消えてしまう。 */
+function buildTempSelects(t) {
   const f = $("#tempForm");
   Object.keys(TEMP_FIELDS).forEach(key => {
     const sel = f[key];
-    if (!sel || sel.options.length > 0) return;
+    if (!sel) return;
+    const opts = TEMP_FIELDS[key].options.slice();
+    const cur = t && t[key];
+    if (cur && opts.indexOf(cur) < 0) opts.push(cur);
     sel.innerHTML = '<option value="">未選択</option>'
-      + TEMP_FIELDS[key].options.map(o => `<option value="${o}">${o}</option>`).join("");
+      + opts.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
   });
 }
 
 function openTemp(id) {
   editingTempId = id;
-  buildTempSelects();
   const f = $("#tempForm");
   const t = id ? data.temps.find(x => x.id === id) : null;
+  buildTempSelects(t);
 
   $("#tempTitle").textContent = t ? "記録を修正" : "一時利用の受付";
   Object.keys(TEMP_FIELDS).forEach(key => { f[key].value = t ? (t[key] || "") : ""; });
@@ -901,9 +958,9 @@ function renderSales() {
 
   $("#view-sales").innerHTML = `
     <div class="month-bar">
-      <button class="btn" id="prevY">‹</button>
+      <button class="btn" id="prevY" aria-label="前の年">‹</button>
       <div class="m">${salesYear}年</div>
-      <button class="btn" id="nextY">›</button>
+      <button class="btn" id="nextY" aria-label="次の年">›</button>
     </div>
 
     <div class="card">
@@ -959,7 +1016,7 @@ function downloadCsv(rows, filename) {
 }
 
 function exportDetailCsv(year) {
-  const rows = [["日付", "区分", "氏名または特徴", "区画", "内訳", "金額",
+  const rows = [["日付", "対象月", "区分", "氏名または特徴", "区画", "内訳", "金額",
                  "色", "カゴ", "年代", "性別", "メモ"]];
   const items = [];
 
@@ -968,10 +1025,20 @@ function exportDetailCsv(year) {
     if (mKey.slice(0, 4) !== String(year)) return;
     const p = data.payments[k];
     const c = data.contracts.find(x => x.id === k.slice(0, k.indexOf("@")));
+    /* 実際に受け取った日を日付欄にする(確定申告は現金の動いた日で記録するため)。
+       記録が無い古いデータは対象月の月末を使う。 */
+    let paidOn = "";
+    if (p.at) {
+      const d = new Date(p.at);
+      if (!isNaN(d.getTime())) paidOn = todayKey(d);
+    }
+    if (!paidOn) paidOn = mKey + "-" + String(daysInMonth(mKey)).padStart(2, "0");
+
     items.push({
+      /* 並び順は対象月を基準にする。こうすると月別集計のCSVと金額が一致する。 */
       sort: mKey + "-00",
       row: [
-        mKey, "月極",
+        paidOn, mKey, "月極",
         c ? c.name : "(削除済み)",
         c ? (c.slot || "") : "",
         p.prorated ? `日割り ${p.days}日` : "月額",
@@ -986,7 +1053,7 @@ function exportDetailCsv(year) {
     items.push({
       sort: t.date + "-" + (t.inAt || ""),
       row: [
-        t.date, "一時利用",
+        t.date, String(t.date).slice(0, 7), "一時利用",
         tempSummary(t),
         "",
         (t.inAt || "") + (t.outAt ? "〜" + t.outAt : ""),
@@ -999,9 +1066,9 @@ function exportDetailCsv(year) {
   items.sort((a, b) => a.sort.localeCompare(b.sort));
   items.forEach(x => rows.push(x.row));
 
-  const total = items.reduce((s, x) => s + (Number(x.row[5]) || 0), 0);
+  const total = items.reduce((s, x) => s + (Number(x.row[6]) || 0), 0);
   rows.push([]);
-  rows.push(["", "", "", "", "合計", total, "", "", "", "", ""]);
+  rows.push(["", "", "", "", "", "合計", total, "", "", "", "", ""]);
 
   if (items.length === 0) { alert(`${year}年の記録がありません。`); return; }
   downloadCsv(rows, `売上明細_${year}年.csv`);
@@ -1173,7 +1240,7 @@ function renderSettings() {
       data = {
         contracts: parsed.contracts,
         payments: parsed.payments || {},
-        temps: Array.isArray(parsed.temps) ? parsed.temps : [],
+        temps: (Array.isArray(parsed.temps) ? parsed.temps : []).map(normalizeTemp),
         rates: (parsed.rates && typeof parsed.rates === "object")
           ? Object.assign({}, DEFAULT_RATES, parsed.rates)
           : Object.assign({}, DEFAULT_RATES),
@@ -1278,14 +1345,7 @@ function dateLabel(key) {
 
 /* 一時利用で記録する特徴の選択肢。
    どれも未選択のままにできる(分からない場合や、聞けなかった場合のため)。 */
-const TEMP_FIELDS = {
-  color:  { label: "色",   options: ["シルバー", "ピンク", "黒", "茶色", "緑", "黄緑", "水色", "紫", "その他"] },
-  basket: { label: "カゴ", options: ["あり", "なし", "前後"] },
-  age:    { label: "年代", options: ["30代", "40代", "50代", "60代", "70代", "80代"] },
-  gender: { label: "性別", options: ["男", "女"] },
-};
-
-/* 一覧に出す「黒・カゴあり・40代・男」のような1行の要約 */
+/* 一覧に出す「黒・カゴあり(前)・40代・男」のような1行の要約 */
 function tempSummary(t) {
   const parts = [];
   if (t.color) parts.push(t.color);
@@ -1515,6 +1575,12 @@ const TAB_TITLES = {
 document.querySelectorAll("nav.tabs button").forEach(btn => {
   btn.addEventListener("click", () => {
     currentTab = btn.dataset.tab;
+    /* アプリを開いたまま日付が変わることがある。
+       タブを開き直した時点で今日・今月に戻し、
+       前日や前月に記録してしまうのを防ぐ。 */
+    if (currentTab === "temp") tempDate = todayKey();
+    if (currentTab === "pay") viewMonth = monthKey(new Date());
+    if (currentTab === "sales") salesYear = new Date().getFullYear();
     document.querySelectorAll("nav.tabs button")
       .forEach(b => b.classList.toggle("active", b === btn));
     renderAll();
