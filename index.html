@@ -385,8 +385,18 @@
       </label>
       <div class="field-row">
         <label class="field">
+          <span class="lab">入庫日</span>
+          <input name="date" type="date">
+        </label>
+        <label class="field">
           <span class="lab">入庫時刻</span>
           <input name="inAt" type="time">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="lab">出庫日</span>
+          <input name="outDate" type="date">
         </label>
         <label class="field">
           <span class="lab">出庫時刻</span>
@@ -397,6 +407,7 @@
         <span class="lab">料金(円)</span>
         <input name="fee" type="number" inputmode="numeric" min="0" step="10">
       </label>
+      <p class="hint" id="tempStayHint" style="margin:-8px 0 14px"></p>
       <button type="button" class="btn danger block" id="tempDelete" hidden>この記録を削除</button>
     </div>
     <div class="dlg-foot">
@@ -595,8 +606,10 @@ function renderHome() {
                         .reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
   const unpaidTotal = unpaid.reduce((s, c) => s + chargeFor(c, thisMonth).amount, 0);
 
-  const todayTemps = tempsOnDate(todayKey(now));
+  const today = todayKey(now);
+  const todayTemps = arrivalsOn(today);
   const todayTempTotal = todayTemps.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+  const stillHere = data.temps.filter(t => isPresentOn(t, today) && !t.outAt).length;
 
   /* 契約は「1日〜月末まで」なので、月末が近づいたら翌月分の案内を出す */
   const lastDay = daysInMonth(thisMonth);
@@ -625,6 +638,7 @@ function renderHome() {
       <p class="hint">
         本日の一時利用 ${todayTemps.length}件 ${escapeHtml(yen(todayTempTotal))}
         ・ 今月の合計 ${escapeHtml(yen(salesOfMonth(thisMonth).total))}
+        ${stillHere === 0 ? "" : `<br>未出庫 ${stillHere}台`}
       </p>
     </div>
 
@@ -789,9 +803,37 @@ function togglePay(contractId, mKey) {
 let tempDate = todayKey();
 
 function renderTemp() {
-  const list = tempsOnDate(tempDate);
-  const inNow = list.filter(t => !t.outAt);
-  const total = list.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+  const arrivals = arrivalsOn(tempDate);
+  const carried = carriedOverOn(tempDate);
+  const list = carried.concat(arrivals);
+  /* その日にまだ出庫していない台数(持ち越し分も含む) */
+  const inNow = list.filter(t => !t.outAt || (t.outDate || t.date) > tempDate);
+  /* 売上は受付日に1回だけ計上する。持ち越し分を足すと二重になる。 */
+  const total = arrivals.reduce((s, t) => s + (Number(t.fee) || 0), 0);
+
+  const rowHtml = (t) => {
+    const isCarried = t.date !== tempDate;
+    const outToday = t.outAt && (t.outDate || t.date) === tempDate;
+    const done = t.outAt && (t.outDate || t.date) <= tempDate;
+    return `
+      <div class="row ${done ? "inactive" : ""}" data-edit-temp="${escapeHtml(t.id)}"
+           style="cursor:pointer">
+        <div class="slot" style="width:62px;font-size:13px">${escapeHtml(t.inAt || "--:--")}</div>
+        <div class="main-col">
+          <div class="name">${escapeHtml(tempSummary(t) || "(特徴の記入なし)")}</div>
+          <div class="meta">
+            ${isCarried
+              ? `${escapeHtml(dateLabel(t.date))}から預かり中 (${stayDays(t, tempDate)}日目)`
+              : escapeHtml(yen(t.fee))}
+            ${outToday ? " ・ " + escapeHtml(t.outAt) + " 出庫"
+              : (t.outAt ? " ・ " + escapeHtml(dateLabel(t.outDate || t.date)) + "に出庫" : " ・ 未出庫")}
+          </div>
+        </div>
+        <button class="pill ${done ? "paid" : "unpaid"}" data-out="${escapeHtml(t.id)}">
+          ${done ? "出庫済み" : "出庫"}
+        </button>
+      </div>`;
+  };
 
   $("#view-temp").innerHTML = `
     <div class="month-bar">
@@ -807,31 +849,25 @@ function renderTemp() {
     <div class="card">
       <h2>この日の集計</h2>
       <div class="stats">
-        <div class="stat"><div class="label">受付</div><div class="value">${list.length}</div></div>
+        <div class="stat"><div class="label">受付</div><div class="value">${arrivals.length}</div></div>
         <div class="stat warn"><div class="label">未出庫</div><div class="value">${inNow.length}</div></div>
         <div class="stat ok"><div class="label">売上</div><div class="value">${escapeHtml(yen(total))}</div></div>
       </div>
+      ${carried.length === 0 ? "" :
+        `<p class="hint">前の日から${carried.length}台を預かっています。売上は受付した日に計上済みです。</p>`}
     </div>
 
+    ${carried.length === 0 ? "" : `
+    <div class="card" style="border-color:var(--warn)">
+      <h2 style="color:var(--warn)">前の日から預かり中 (${carried.length}台)</h2>
+      ${carried.map(rowHtml).join("")}
+    </div>`}
+
     <div class="card">
-      <h2>受付一覧</h2>
-      ${list.length === 0
+      <h2>この日の受付 (${arrivals.length}台)</h2>
+      ${arrivals.length === 0
         ? `<div class="empty">この日の一時利用はまだありません。</div>`
-        : list.map(t => `
-          <div class="row ${t.outAt ? "inactive" : ""}" data-edit-temp="${escapeHtml(t.id)}"
-               style="cursor:pointer">
-            <div class="slot" style="width:62px;font-size:13px">${escapeHtml(t.inAt || "--:--")}</div>
-            <div class="main-col">
-              <div class="name">${escapeHtml(tempSummary(t) || "(特徴の記入なし)")}</div>
-              <div class="meta">
-                ${escapeHtml(yen(t.fee))}
-                ${t.outAt ? " ・ " + escapeHtml(t.outAt) + " 出庫" : " ・ 未出庫"}
-              </div>
-            </div>
-            <button class="pill ${t.outAt ? "paid" : "unpaid"}" data-out="${escapeHtml(t.id)}">
-              ${t.outAt ? "出庫済み" : "出庫"}
-            </button>
-          </div>`).join("")}
+        : arrivals.map(rowHtml).join("")}
       ${list.length === 0 ? "" :
         `<p class="hint">行をタップすると、特徴や時刻の修正・削除ができます。</p>`}
     </div>`;
@@ -846,7 +882,23 @@ function renderTemp() {
       ev.stopPropagation();
       const t = data.temps.find(x => x.id === btn.dataset.out);
       if (!t) return;
-      t.outAt = t.outAt ? "" : nowTime();
+
+      if (t.outAt) {
+        /* 出庫済みを取り消す */
+        t.outAt = ""; t.outDate = "";
+      } else {
+        t.outAt = nowTime();
+        t.outDate = tempDate;
+        const days = totalStayDays(t);
+        if (days > 1) {
+          const suggested = days * data.rates.daily;
+          if (Number(t.fee) !== suggested &&
+              confirm(`${days}日間の預かりです。\n料金を${yen(suggested)}(${days}日分)に変更しますか?\n`
+                      + `「キャンセル」を押すと${yen(t.fee)}のままにします。`)) {
+            t.fee = suggested;
+          }
+        }
+      }
       save(); renderTemp();
     });
   });
@@ -888,23 +940,51 @@ function openTemp(id) {
   $("#tempTitle").textContent = t ? "記録を修正" : "一時利用の受付";
   Object.keys(TEMP_FIELDS).forEach(key => { f[key].value = t ? (t[key] || "") : ""; });
   f.note.value = t ? (t.note || "") : "";
+  f.date.value = t ? (t.date || tempDate) : tempDate;
   f.inAt.value = t ? (t.inAt || "") : nowTime();
+  f.outDate.value = t ? (t.outDate || "") : "";
   f.outAt.value = t ? (t.outAt || "") : "";
   f.fee.value = t ? (Number(t.fee) || 0) : data.rates.daily;
   $("#tempDelete").hidden = !t;
+  updateStayHint();
 
   $("#tempDlg").showModal();
   if (!t) setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 50);
 }
 
+/* 入庫日と出庫日から預かり日数を出し、目安の料金を案内する */
+function updateStayHint() {
+  const f = $("#tempForm");
+  const box = $("#tempStayHint");
+  if (!box) return;
+  const from = f.date.value;
+  const to = f.outDate.value || (f.outAt.value ? f.date.value : "");
+  if (!from || !to) { box.textContent = ""; return; }
+  if (to < from) { box.textContent = "出庫日が入庫日より前になっています。"; return; }
+  const days = stayDays({ date: from }, to);
+  box.textContent = days <= 1
+    ? `預かり1日 (${data.rates.daily}円が目安)`
+    : `預かり${days}日 (${days * data.rates.daily}円が目安)`;
+}
+
+["date", "outDate", "outAt"].forEach(k => {
+  $("#tempForm")[k].addEventListener("change", updateStayHint);
+});
+
 $("#tempForm").addEventListener("submit", () => {
   const f = $("#tempForm");
   const rec = {
     note: f.note.value.trim(),
+    date: f.date.value || tempDate,
     inAt: f.inAt.value,
+    outDate: f.outDate.value,
     outAt: f.outAt.value,
     fee: f.fee.value === "" ? data.rates.daily : Number(f.fee.value),
   };
+  /* 出庫時刻だけ入れて日付を忘れた場合は、入庫日に出庫したものとする */
+  if (rec.outAt && !rec.outDate) rec.outDate = rec.date;
+  /* 出庫日だけ入れて時刻が無い場合は、日付も無効にする(未出庫のまま) */
+  if (!rec.outAt) rec.outDate = "";
   Object.keys(TEMP_FIELDS).forEach(key => { rec[key] = f[key].value; });
   if (editingTempId) {
     const t = data.temps.find(x => x.id === editingTempId);
@@ -912,7 +992,6 @@ $("#tempForm").addEventListener("submit", () => {
   } else {
     data.temps.push(Object.assign({
       id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      date: tempDate,
     }, rec));
   }
   save();
@@ -1017,7 +1096,7 @@ function downloadCsv(rows, filename) {
 
 function exportDetailCsv(year) {
   const rows = [["日付", "対象月", "区分", "氏名または特徴", "区画", "内訳", "金額",
-                 "色", "カゴ", "年代", "性別", "メモ"]];
+                 "出庫日", "預かり日数", "色", "カゴ", "年代", "性別", "メモ"]];
   const items = [];
 
   Object.keys(data.payments).forEach(k => {
@@ -1043,7 +1122,7 @@ function exportDetailCsv(year) {
         c ? (c.slot || "") : "",
         p.prorated ? `日割り ${p.days}日` : "月額",
         Number(p.amount) || 0,
-        "", "", "", "", "",
+        "", "", "", "", "", "", "",
       ],
     });
   });
@@ -1058,6 +1137,8 @@ function exportDetailCsv(year) {
         "",
         (t.inAt || "") + (t.outAt ? "〜" + t.outAt : ""),
         Number(t.fee) || 0,
+        t.outAt ? (t.outDate || t.date) : "",
+        t.outAt ? totalStayDays(t) : "",
         t.color || "", t.basket || "", t.age || "", t.gender || "", t.note || "",
       ],
     });
@@ -1068,7 +1149,7 @@ function exportDetailCsv(year) {
 
   const total = items.reduce((s, x) => s + (Number(x.row[6]) || 0), 0);
   rows.push([]);
-  rows.push(["", "", "", "", "", "合計", total, "", "", "", "", ""]);
+  rows.push(["", "", "", "", "", "合計", total, "", "", "", "", "", "", ""]);
 
   if (items.length === 0) { alert(`${year}年の記録がありません。`); return; }
   downloadCsv(rows, `売上明細_${year}年.csv`);
@@ -1356,10 +1437,48 @@ function tempSummary(t) {
   return parts.join("・");
 }
 
-function tempsOnDate(dateKey) {
+/* その自転車が、指定した日に駐輪場に「居た」かどうか。
+   1日を超えて預かることがあるため、受付日だけで判断しない。 */
+function isPresentOn(t, dateKey) {
+  if (!t.date || t.date > dateKey) return false;   // まだ受け付けていない
+  if (!t.outAt) return true;                        // 未出庫ならずっと居る
+  const out = t.outDate || t.date;                  // 古い記録は受付日に出庫した扱い
+  return out >= dateKey;
+}
+
+/* 受付日から指定日までの預かり日数(受付日を1日目とする) */
+function stayDays(t, dateKey) {
+  if (!t.date) return 1;
+  const [y1, m1, d1] = t.date.split("-").map(Number);
+  const [y2, m2, d2] = dateKey.split("-").map(Number);
+  const diff = Math.round(
+    (new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / 86400000
+  );
+  return Math.max(1, diff + 1);
+}
+
+/* 出庫までにかかった日数。未出庫なら今日までの日数。 */
+function totalStayDays(t) {
+  return stayDays(t, t.outAt ? (t.outDate || t.date) : todayKey());
+}
+
+/* その日に受け付けた分 */
+function arrivalsOn(dateKey) {
   return data.temps
     .filter(t => t.date === dateKey)
     .sort((a, b) => String(b.inAt).localeCompare(String(a.inAt)));
+}
+
+/* 前の日から続けて預かっている分 */
+function carriedOverOn(dateKey) {
+  return data.temps
+    .filter(t => t.date !== dateKey && isPresentOn(t, dateKey))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+/* その日に関係する記録すべて(受付分＋持ち越し分) */
+function tempsOnDate(dateKey) {
+  return carriedOverOn(dateKey).concat(arrivalsOn(dateKey));
 }
 function tempsInMonth(mKey) {
   return data.temps.filter(t => String(t.date).slice(0, 7) === mKey);
