@@ -399,6 +399,7 @@ function freshData() {
     temps: [],
     rates: Object.assign({}, DEFAULT_RATES),
     siteName: "",
+    lastBackup: "",
   };
 }
 
@@ -430,6 +431,7 @@ function load() {
       temps: Array.isArray(parsed.temps) ? parsed.temps : [],
       rates,
       siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
+      lastBackup: typeof parsed.lastBackup === "string" ? parsed.lastBackup : "",
     };
   } catch (e) {
     console.warn("保存データを読めませんでした", e);
@@ -1017,6 +1019,71 @@ function exportSummaryCsv(year) {
   downloadCsv(rows, `売上集計_${year}年.csv`);
 }
 
+/* ===== バックアップ =====
+   iPadでは共有メニューを開き、そこからGoogleドライブを選べるようにする。
+   共有に対応していないパソコンのブラウザでは、通常のダウンロードにする。 */
+
+function backupFileName() {
+  return `駐輪場バックアップ_${todayKey()}.json`;
+}
+
+function daysSinceBackup() {
+  if (!data.lastBackup) return null;
+  const then = new Date(data.lastBackup);
+  if (isNaN(then.getTime())) return null;
+  return Math.floor((Date.now() - then.getTime()) / 86400000);
+}
+
+function backupOverdue() {
+  const d = daysSinceBackup();
+  return d === null || d >= 30;
+}
+
+function backupStatusText() {
+  const d = daysSinceBackup();
+  if (d === null) return "まだ一度もバックアップしていません。";
+  if (d === 0) return "前回のバックアップ: 今日";
+  if (d >= 30) return `前回のバックアップから${d}日経っています。`;
+  return `前回のバックアップ: ${d}日前`;
+}
+
+function markBackedUp() {
+  data.lastBackup = new Date().toISOString();
+  save();
+}
+
+async function doBackup() {
+  const text = JSON.stringify(data, null, 2);
+  const name = backupFileName();
+
+  /* iPad/iPhone: 共有メニューを出して、Googleドライブやファイルに保存してもらう */
+  try {
+    if (typeof File === "function" && navigator.share && navigator.canShare) {
+      const file = new File([text], name, { type: "application/json" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: name });
+        markBackedUp();
+        renderAll();
+        return;
+      }
+    }
+  } catch (e) {
+    /* 共有をキャンセルした場合もここに来る。ダウンロードは行わず終了する。 */
+    if (e && e.name === "AbortError") return;
+  }
+
+  /* パソコンのブラウザ向け */
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  markBackedUp();
+  renderAll();
+}
+
 /* ===== 設定・バックアップ ===== */
 function renderSettings() {
   $("#view-settings").innerHTML = `
@@ -1053,13 +1120,16 @@ function renderSettings() {
       </p>
     </div>
 
-    <div class="card">
-      <h2>バックアップ</h2>
+    <div class="card" ${backupOverdue() ? 'style="border-color:var(--warn)"' : ""}>
+      <h2 ${backupOverdue() ? 'style="color:var(--warn)"' : ""}>バックアップ</h2>
       <p class="hint" style="margin-bottom:12px">
-        データはこの端末の中だけに保存されています。端末の買い替えや故障に備えて、
-        ときどきバックアップを書き出して、メールやファイルアプリに残しておいてください。
+        ${escapeHtml(backupStatusText())}<br>
+        データはこの端末の中だけにあります。端末の故障や買い替えで消えるので、
+        月に1度はGoogleドライブに保存してください。
       </p>
-      <button class="btn block" id="exportBtn" style="margin-bottom:10px">バックアップを書き出す</button>
+      <button class="btn primary block" id="exportBtn" style="margin-bottom:10px">
+        バックアップを保存する
+      </button>
       <button class="btn block" id="importBtn">バックアップから復元する</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
@@ -1090,15 +1160,7 @@ function renderSettings() {
     alert("保存しました。");
   });
 
-  $("#exportBtn").addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `駐輪場バックアップ_${monthKey(new Date())}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+  $("#exportBtn").addEventListener("click", () => { doBackup(); });
 
   $("#importBtn").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", async (ev) => {
@@ -1116,6 +1178,7 @@ function renderSettings() {
           ? Object.assign({}, DEFAULT_RATES, parsed.rates)
           : Object.assign({}, DEFAULT_RATES),
         siteName: typeof parsed.siteName === "string" ? parsed.siteName : "",
+        lastBackup: typeof parsed.lastBackup === "string" ? parsed.lastBackup : "",
       };
       save(); renderAll();
       alert("復元しました。");
