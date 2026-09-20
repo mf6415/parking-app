@@ -285,6 +285,31 @@
   </form>
 </dialog>
 
+<!-- まとめて追加ダイアログ -->
+<dialog id="bulkDlg">
+  <div class="dlg-head">契約者をまとめて追加</div>
+  <div class="dlg-body">
+    <p class="hint" style="margin:0 0 12px">
+      1行に1人ずつ、<b>区画番号, お名前, 月額, 電話番号</b> の順に入力します。
+      お名前だけでも構いません。Excelからコピーしたものをそのまま貼り付けられます。
+    </p>
+    <label class="field">
+      <span class="lab">貼り付け欄</span>
+      <textarea id="bulkText" style="min-height:150px" placeholder="1, 山田 太郎, 1500, 090-1234-5678
+2, 鈴木 花子, 1500
+3, 佐藤 次郎"></textarea>
+    </label>
+    <button class="btn block" id="bulkFileBtn" style="margin-bottom:12px">CSVファイルを選ぶ</button>
+    <input type="file" id="bulkFile" accept=".csv,.txt,text/csv,text/plain" hidden>
+    <button class="btn primary block" id="bulkPreviewBtn">内容を確認する</button>
+    <div id="bulkPreview"></div>
+  </div>
+  <div class="dlg-foot">
+    <button type="button" class="btn" id="bulkCancel">キャンセル</button>
+    <button type="button" class="btn primary" id="bulkCommit" disabled>追加する</button>
+  </div>
+</dialog>
+
 <script>
 "use strict";
 
@@ -424,7 +449,10 @@ function renderList() {
   });
 
   $("#view-list").innerHTML = `
-    <button class="btn primary block" id="addBtn" style="margin-bottom:14px">＋ 契約者を追加</button>
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <button class="btn primary" id="addBtn" style="flex:1">＋ 1人ずつ追加</button>
+      <button class="btn" id="bulkBtn" style="flex:1">まとめて追加</button>
+    </div>
     <div class="card">
       <h2>登録済み (${data.contracts.filter(c => c.active !== false).length}件が契約中)</h2>
       ${list.length === 0
@@ -442,6 +470,7 @@ function renderList() {
     </div>`;
 
   $("#addBtn").addEventListener("click", () => openEdit(null));
+  $("#bulkBtn").addEventListener("click", () => openBulk());
   $("#view-list").querySelectorAll("[data-edit]").forEach(row => {
     row.addEventListener("click", () => openEdit(row.dataset.edit));
   });
@@ -653,6 +682,180 @@ $("#deleteBtn").addEventListener("click", () => {
   save();
   $("#editDlg").close();
   renderAll();
+});
+
+/* ===== まとめて追加 ===== */
+
+/* 1行を項目に分割する。タブ区切り(Excelからの貼り付け)と
+   カンマ区切り(CSV)の両方に対応し、"..." で囲まれた項目も扱う。 */
+function splitLine(line) {
+  // 区切り文字を判定する。全角カンマ(，)で入力されることもある。
+  let sep = ",";
+  if (line.indexOf("\t") >= 0) sep = "\t";
+  else if (line.indexOf(",") >= 0) sep = ",";
+  else if (line.indexOf("，") >= 0) sep = "，";
+  const out = [];
+  let cur = "", inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuote) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuote = false;
+      } else cur += ch;
+    } else if (ch === '"') {
+      inQuote = true;
+    } else if (ch === sep) {
+      out.push(cur); cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+/* 全角の数字や記号を半角に直す(手入力のゆらぎ対策) */
+function toHalfWidth(s) {
+  return String(s)
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[－ー−]/g, "-")
+    .replace(/[，]/g, ",")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseBulk(text) {
+  const rows = [];
+  const errors = [];
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((line, i) => {
+    if (!line.trim()) return;
+    let cells = splitLine(line);
+
+    // 見出し行(1行目に「名前」「氏名」などが入っている)は読み飛ばす
+    if (i === 0 && cells.some(c => /名前|氏名|区画|番号|月額|料金|電話/.test(c))) return;
+
+    // 列が1つだけならお名前とみなす
+    let slot = "", name = "", fee = "", phone = "";
+    if (cells.length === 1) {
+      name = cells[0];
+    } else {
+      // 1列目が数字だけなら区画番号、そうでなければお名前とみなす
+      if (/^\d+$/.test(toHalfWidth(cells[0]))) {
+        slot = toHalfWidth(cells[0]);
+        name = cells[1] || "";
+        fee = cells[2] || "";
+        phone = cells[3] || "";
+      } else {
+        name = cells[0];
+        slot = toHalfWidth(cells[1] || "");
+        fee = cells[2] || "";
+        phone = cells[3] || "";
+      }
+    }
+
+    name = name.trim();
+    if (!name) { errors.push(`${i + 1}行目: お名前が読み取れませんでした`); return; }
+
+    const feeNum = toHalfWidth(fee).replace(/[^\d]/g, "");
+    rows.push({
+      line: i + 1,
+      slot,
+      name,
+      fee: feeNum === "" ? "" : Number(feeNum),
+      phone: toHalfWidth(phone),
+    });
+  });
+
+  return { rows, errors };
+}
+
+let bulkParsed = null;
+
+function renderBulkPreview() {
+  const box = $("#bulkPreview");
+  const { rows, errors } = bulkParsed;
+  const existingNames = new Set(data.contracts.map(c => c.name));
+  const usedSlots = new Set(data.contracts.filter(c => c.active !== false).map(c => String(c.slot)));
+
+  const warn = [];
+  rows.forEach(r => {
+    if (existingNames.has(r.name)) warn.push(`${r.line}行目: 「${r.name}」さんは既に登録されています`);
+    if (r.slot && usedSlots.has(r.slot)) warn.push(`${r.line}行目: 区画 ${r.slot} は既に使われています`);
+  });
+
+  box.innerHTML = `
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-weight:700;margin-bottom:8px">読み取り結果: ${rows.length}人</div>
+      ${rows.length === 0 ? '<div class="empty">読み取れる行がありませんでした。</div>' : ""}
+      ${rows.map(r => `
+        <div class="row">
+          <div class="slot">${escapeHtml(r.slot || "-")}</div>
+          <div class="main-col">
+            <div class="name">${escapeHtml(r.name)}</div>
+            <div class="meta">${escapeHtml(r.fee === "" ? "標準額 " + yen(data.defaultFee) : yen(r.fee))}${r.phone ? " ・ " + escapeHtml(r.phone) : ""}</div>
+          </div>
+        </div>`).join("")}
+      ${errors.concat(warn).length === 0 ? "" : `
+        <div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn);font-size:13px">
+          ${errors.concat(warn).map(escapeHtml).join("<br>")}
+        </div>`}
+    </div>`;
+
+  $("#bulkCommit").disabled = rows.length === 0;
+}
+
+function openBulk() {
+  bulkParsed = null;
+  $("#bulkText").value = "";
+  $("#bulkPreview").innerHTML = "";
+  $("#bulkCommit").disabled = true;
+  $("#bulkDlg").showModal();
+}
+
+$("#bulkPreviewBtn").addEventListener("click", () => {
+  bulkParsed = parseBulk($("#bulkText").value);
+  renderBulkPreview();
+});
+
+$("#bulkFileBtn").addEventListener("click", () => $("#bulkFile").click());
+
+$("#bulkFile").addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    // ExcelのCSVはShift-JISのことが多いので、文字化けしたら読み直す
+    let text = new TextDecoder("utf-8").decode(buf);
+    if (text.indexOf("�") >= 0) {
+      try { text = new TextDecoder("shift_jis").decode(buf); } catch (e) { /* そのまま */ }
+    }
+    $("#bulkText").value = text;
+    bulkParsed = parseBulk(text);
+    renderBulkPreview();
+  } catch (e) {
+    alert("このファイルは読み込めませんでした。");
+  } finally {
+    ev.target.value = "";
+  }
+});
+
+$("#bulkCancel").addEventListener("click", () => $("#bulkDlg").close());
+
+$("#bulkCommit").addEventListener("click", () => {
+  if (!bulkParsed || bulkParsed.rows.length === 0) return;
+  if (!confirm(`${bulkParsed.rows.length}人を追加します。よろしいですか?`)) return;
+  bulkParsed.rows.forEach((r, i) => {
+    data.contracts.push({
+      id: "c" + Date.now().toString(36) + i.toString(36) + Math.random().toString(36).slice(2, 5),
+      name: r.name, slot: r.slot, fee: r.fee, phone: r.phone,
+      start: "", note: "", active: true,
+    });
+  });
+  save();
+  $("#bulkDlg").close();
+  renderAll();
+  alert(`${bulkParsed.rows.length}人を追加しました。`);
 });
 
 /* ===== タブ切り替え ===== */
