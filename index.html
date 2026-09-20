@@ -240,6 +240,19 @@
   }
 
   .hint { font-size: 13px; color: var(--text-dim); margin: 6px 0 0; }
+
+  /* 新しい版が届いたときの帯。タブバーの上に出す。 */
+  #updateBar {
+    position: fixed; z-index: 40;
+    left: 12px; right: 12px;
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px 10px 16px;
+    background: var(--surface); border: 1px solid var(--accent);
+    border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    font-size: 14px; font-weight: 600;
+  }
+  #updateBar span { flex: 1; }
   /* 解約済みや出庫済みの行。
      opacity で薄くすると文字が読めなくなるため、色だけ落とす。 */
   .inactive .name { color: var(--text-dim); font-weight: 600; }
@@ -439,6 +452,10 @@
    外部サーバーには一切送信されません。
    端末を変えるとデータは移らないので、設定タブのバックアップを使ってください。 */
 const STORE_KEY = "parking.v1";
+
+/* アプリの版。sw.js の VERSION と揃えて増やすこと。
+   設定画面に表示して、更新が届いているか確認できるようにしている。 */
+const APP_VERSION = "v1";
 
 /* siteName(駐輪場の名前)は、この端末の中だけに保存されます。
    場所が特定されないよう、プログラム側には一切書き込みません。 */
@@ -1414,7 +1431,33 @@ function renderSettings() {
         契約者 ${data.contracts.length}件 / 入金記録 ${Object.keys(data.payments).length}件
         / 一時利用 ${data.temps.length}件
       </p>
+    </div>
+
+    <div class="card">
+      <h2>アプリの状態</h2>
+      <p class="hint">
+        版 ${escapeHtml(APP_VERSION)}<br>
+        オフライン: <span id="swState">確認中…</span><br>
+        通信: ${navigator.onLine ? "つながっています" : "つながっていません"}
+      </p>
     </div>`;
+
+  /* オフラインで使える状態になっているかを表示する */
+  (function showSwState() {
+    const box = $("#swState");
+    if (!box) return;
+    if (!("serviceWorker" in navigator) || location.protocol.indexOf("http") !== 0) {
+      box.textContent = "この開き方では使えません";
+      return;
+    }
+    navigator.serviceWorker.getRegistration()
+      .then((reg) => {
+        box.textContent = (reg && navigator.serviceWorker.controller)
+          ? "使えます(電波が無くても起動します)"
+          : "準備中。一度アプリを開き直してください";
+      })
+      .catch(() => { box.textContent = "確認できませんでした"; });
+  })();
 
   $("#saveName").addEventListener("click", () => {
     data.siteName = $("#siteName").value.trim();
@@ -1875,6 +1918,39 @@ function renderAll() {
 }
 
 renderAll();
+
+/* ===== オフライン対応の登録 =====
+   電波が届かない場所でもアプリが起動するよう、控えを端末に持たせる。
+   ファイルを直接開いた場合(file://)は使えないので、その時は何もしない。 */
+if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => {
+      console.warn("オフライン対応を登録できませんでした", e);
+    });
+  });
+
+  /* 新しい版に入れ替わったら、読み込み直すよう促す。
+     黙って入れ替えると、画面と中身が食い違うため。 */
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    showUpdateBar();
+  });
+}
+
+function showUpdateBar() {
+  if ($("#updateBar")) return;
+  const bar = document.createElement("div");
+  bar.id = "updateBar";
+  bar.innerHTML = `
+    <span>新しい版が届きました</span>
+    <button class="btn primary" id="updateNow" style="min-height:38px;padding:0 14px">
+      読み込み直す
+    </button>`;
+  document.body.appendChild(bar);
+  $("#updateNow").addEventListener("click", () => location.reload());
+}
 </script>
 </body>
 </html>
