@@ -332,9 +332,29 @@
   <form method="dialog" id="tempForm">
     <div class="dlg-head" id="tempTitle">一時利用の受付</div>
     <div class="dlg-body">
+      <div style="display:flex;gap:10px">
+        <label class="field" style="flex:1">
+          <span class="lab">車体の色</span>
+          <select name="color" id="tempColor"></select>
+        </label>
+        <label class="field" style="flex:1">
+          <span class="lab">カゴ</span>
+          <select name="basket"></select>
+        </label>
+      </div>
+      <div style="display:flex;gap:10px">
+        <label class="field" style="flex:1">
+          <span class="lab">年代</span>
+          <select name="age"></select>
+        </label>
+        <label class="field" style="flex:1">
+          <span class="lab">性別</span>
+          <select name="gender"></select>
+        </label>
+      </div>
       <label class="field">
-        <span class="lab">車体の特徴</span>
-        <input name="note" id="tempNote" placeholder="例: 赤いママチャリ、カゴに青い袋">
+        <span class="lab">その他のメモ</span>
+        <input name="note" placeholder="例: カゴに青い袋">
       </label>
       <div style="display:flex;gap:10px">
         <label class="field" style="flex:1">
@@ -743,7 +763,7 @@ function renderTemp() {
           <div class="row ${t.outAt ? "inactive" : ""}">
             <div class="slot" style="width:62px;font-size:13px">${escapeHtml(t.inAt || "--:--")}</div>
             <div class="main-col">
-              <div class="name">${escapeHtml(t.note || "(特徴の記入なし)")}</div>
+              <div class="name">${escapeHtml(tempSummary(t) || "(特徴の記入なし)")}</div>
               <div class="meta">
                 ${escapeHtml(yen(t.fee))}
                 ${t.outAt ? " ・ " + escapeHtml(t.outAt) + " 出庫" : " ・ 在庫中"}
@@ -789,12 +809,25 @@ function shiftDate(key, delta) {
 
 let editingTempId = null;
 
+/* 選択肢を1度だけ組み立てる。先頭は「未選択」の空欄。 */
+function buildTempSelects() {
+  const f = $("#tempForm");
+  Object.keys(TEMP_FIELDS).forEach(key => {
+    const sel = f[key];
+    if (!sel || sel.options.length > 0) return;
+    sel.innerHTML = '<option value="">未選択</option>'
+      + TEMP_FIELDS[key].options.map(o => `<option value="${o}">${o}</option>`).join("");
+  });
+}
+
 function openTemp(id) {
   editingTempId = id;
+  buildTempSelects();
   const f = $("#tempForm");
   const t = id ? data.temps.find(x => x.id === id) : null;
 
   $("#tempTitle").textContent = t ? "記録を修正" : "一時利用の受付";
+  Object.keys(TEMP_FIELDS).forEach(key => { f[key].value = t ? (t[key] || "") : ""; });
   f.note.value = t ? (t.note || "") : "";
   f.inAt.value = t ? (t.inAt || "") : nowTime();
   f.outAt.value = t ? (t.outAt || "") : "";
@@ -802,7 +835,7 @@ function openTemp(id) {
   $("#tempDelete").hidden = !t;
 
   $("#tempDlg").showModal();
-  if (!t) setTimeout(() => { try { $("#tempNote").focus(); } catch (e) {} }, 50);
+  if (!t) setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 50);
 }
 
 $("#tempForm").addEventListener("submit", () => {
@@ -813,6 +846,7 @@ $("#tempForm").addEventListener("submit", () => {
     outAt: f.outAt.value,
     fee: f.fee.value === "" ? data.rates.daily : Number(f.fee.value),
   };
+  Object.keys(TEMP_FIELDS).forEach(key => { rec[key] = f[key].value; });
   if (editingTempId) {
     const t = data.temps.find(x => x.id === editingTempId);
     if (t) Object.assign(t, rec);
@@ -923,7 +957,8 @@ function downloadCsv(rows, filename) {
 }
 
 function exportDetailCsv(year) {
-  const rows = [["日付", "区分", "氏名または特徴", "区画", "内訳", "金額"]];
+  const rows = [["日付", "区分", "氏名または特徴", "区画", "内訳", "金額",
+                 "色", "カゴ", "年代", "性別", "メモ"]];
   const items = [];
 
   Object.keys(data.payments).forEach(k => {
@@ -939,6 +974,7 @@ function exportDetailCsv(year) {
         c ? (c.slot || "") : "",
         p.prorated ? `日割り ${p.days}日` : "月額",
         Number(p.amount) || 0,
+        "", "", "", "", "",
       ],
     });
   });
@@ -949,10 +985,11 @@ function exportDetailCsv(year) {
       sort: t.date + "-" + (t.inAt || ""),
       row: [
         t.date, "一時利用",
-        t.note || "",
+        tempSummary(t),
         "",
         (t.inAt || "") + (t.outAt ? "〜" + t.outAt : ""),
         Number(t.fee) || 0,
+        t.color || "", t.basket || "", t.age || "", t.gender || "", t.note || "",
       ],
     });
   });
@@ -962,7 +999,7 @@ function exportDetailCsv(year) {
 
   const total = items.reduce((s, x) => s + (Number(x.row[5]) || 0), 0);
   rows.push([]);
-  rows.push(["", "", "", "", "合計", total]);
+  rows.push(["", "", "", "", "合計", total, "", "", "", "", ""]);
 
   if (items.length === 0) { alert(`${year}年の記録がありません。`); return; }
   downloadCsv(rows, `売上明細_${year}年.csv`);
@@ -1174,6 +1211,26 @@ function dateLabel(key) {
   const [y, m, d] = key.split("-").map(Number);
   const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()];
   return `${m}月${d}日(${w})`;
+}
+
+/* 一時利用で記録する特徴の選択肢。
+   どれも未選択のままにできる(分からない場合や、聞けなかった場合のため)。 */
+const TEMP_FIELDS = {
+  color:  { label: "色",   options: ["シルバー", "ピンク", "黒", "茶色", "緑", "黄緑", "水色", "紫", "その他"] },
+  basket: { label: "カゴ", options: ["あり", "なし", "前後"] },
+  age:    { label: "年代", options: ["30代", "40代", "50代", "60代", "70代", "80代"] },
+  gender: { label: "性別", options: ["男", "女"] },
+};
+
+/* 一覧に出す「黒・カゴあり・40代・男」のような1行の要約 */
+function tempSummary(t) {
+  const parts = [];
+  if (t.color) parts.push(t.color);
+  if (t.basket) parts.push("カゴ" + t.basket);
+  if (t.age) parts.push(t.age);
+  if (t.gender) parts.push(t.gender);
+  if (t.note) parts.push(t.note);
+  return parts.join("・");
 }
 
 function tempsOnDate(dateKey) {
