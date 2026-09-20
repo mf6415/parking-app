@@ -312,6 +312,10 @@
   <form method="dialog" id="editForm">
     <div class="dlg-head" id="editTitle">契約者を追加</div>
     <div class="dlg-body">
+      <!-- tempDlg と同じ理由のフォーカスの受け皿。
+           これが無いと、編集で開いただけでキーボードが出て画面が狭くなる。 -->
+      <div id="editSink" tabindex="-1" autofocus aria-hidden="true"
+           style="outline:none;height:0;overflow:hidden"></div>
       <label class="field">
         <span class="lab">お名前 <span style="color:var(--warn)">*</span></span>
         <input name="name" required placeholder="例: 山田 太郎">
@@ -391,6 +395,13 @@
   <form method="dialog" id="tempForm">
     <div class="dlg-head" id="tempTitle">一時利用の受付</div>
     <div class="dlg-body">
+      <!-- フォーカスの受け皿。
+           showModal() はダイアログを開くとき、最初の入力欄へ自動でフォーカスする。
+           そのままだと iOS で色の選択ホイールが勝手に開いてしまうため、
+           先頭にこれを置いて自動フォーカスを引き受けさせる。
+           新規受付のときだけ、この後コード側から色の欄へフォーカスし直す。 -->
+      <div id="tempSink" tabindex="-1" autofocus aria-hidden="true"
+           style="outline:none;height:0;overflow:hidden"></div>
       <div class="field-row">
         <label class="field">
           <span class="lab">車体の色</span>
@@ -460,7 +471,7 @@ const STORE_KEY = "parking.v1";
 
 /* アプリの版。sw.js の VERSION と揃えて増やすこと。
    設定画面に表示して、更新が届いているか確認できるようにしている。 */
-const APP_VERSION = "v2";
+const APP_VERSION = "v3";
 
 /* siteName(駐輪場の名前)は、この端末の中だけに保存されます。
    場所が特定されないよう、プログラム側には一切書き込みません。 */
@@ -1081,7 +1092,17 @@ function openTemp(id) {
      受付は色から入力し始めるので1操作減る。
      修正のときは時刻や料金を直したいことが多く、
      色が勝手に開くと閉じる手間が増えるので開かない。 */
-  if (!t) setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 60);
+  if (t) {
+    /* 受け皿が効かないブラウザに備えて、明示的にフォーカスを外す */
+    try {
+      const sink = $("#tempSink");
+      if (sink) sink.focus();
+      const a = document.activeElement;
+      if (a && a !== sink && a.blur) a.blur();
+    } catch (e) { /* 何もしない */ }
+  } else {
+    setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 60);
+  }
 }
 
 /* 入庫日と出庫日から預かり日数を出し、目安の料金を案内する */
@@ -1554,6 +1575,19 @@ function openEdit(id) {
   $("#deleteBtn").hidden = !c;
 
   $("#editDlg").showModal();
+
+  /* 新規追加のときだけ、お名前の欄にキーボードを出す。
+     編集のときは、どこを直すか選ばせたいので出さない。 */
+  if (c) {
+    try {
+      const sink = $("#editSink");
+      if (sink) sink.focus();
+      const a = document.activeElement;
+      if (a && a !== sink && a.blur) a.blur();
+    } catch (e) { /* 何もしない */ }
+  } else {
+    setTimeout(() => { try { form.name.focus(); } catch (e) {} }, 60);
+  }
 }
 
 /* 区分を選んだら、その区分の標準額を薄い文字で見せる */
