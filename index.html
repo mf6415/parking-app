@@ -165,13 +165,15 @@
     border-radius: 10px; background: var(--bg); color: var(--text);
     font-size: 16px; /* iOSで入力時に画面が拡大するのを防ぐ */
   }
-  /* 日付と時刻の入力欄は、見た目をリセットするとiOSで表示が崩れるので除く */
-  label.field input:not([type="date"]):not([type="time"]),
-  label.field select, label.field textarea {
+  /* 見た目のリセットは日付・時刻にも必ず掛ける。
+     これを外すと、iOSの日付入力が指定した幅を無視して枠からはみ出す。 */
+  label.field input, label.field select, label.field textarea {
     -webkit-appearance: none; appearance: none;
   }
   label.field input[type="date"], label.field input[type="time"] {
-    line-height: 1.4; text-align: left;
+    text-align: left; line-height: 1.4;
+    /* iOSは中身の文字数ぶんの幅を主張してくるので、明示的に抑える */
+    display: block; width: 100%; min-width: 0; max-width: 100%;
   }
   label.field select {
     /* 端末標準の下向き矢印が消えるので、自前で描く */
@@ -186,8 +188,11 @@
 
   /* 2つの入力を横に並べる行。
      min-width:0 が無いと、時刻入力が自分の幅を主張して隣と重なる。 */
-  .field-row { display: flex; gap: 10px; }
-  .field-row > label.field { flex: 1 1 0; min-width: 0; }
+  /* 2つの入力を横に並べる行。
+     min-width:0 が無いと、入力欄が自分の幅を主張して隣と重なる。
+     幅が足りない端末では、はみ出させずに自動で縦に積む。 */
+  .field-row { display: flex; flex-wrap: wrap; gap: 0 10px; }
+  .field-row > label.field { flex: 1 1 130px; min-width: 0; max-width: 100%; }
 
   nav.tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -455,7 +460,7 @@ const STORE_KEY = "parking.v1";
 
 /* アプリの版。sw.js の VERSION と揃えて増やすこと。
    設定画面に表示して、更新が届いているか確認できるようにしている。 */
-const APP_VERSION = "v1";
+const APP_VERSION = "v2";
 
 /* siteName(駐輪場の名前)は、この端末の中だけに保存されます。
    場所が特定されないよう、プログラム側には一切書き込みません。 */
@@ -1070,10 +1075,13 @@ function openTemp(id) {
   $("#tempDelete").hidden = !t;
   updateStayHint();
 
-  /* 自動でフォーカスしない。
-     iPadでは選択欄にフォーカスするとホイールが勝手に開き、
-     閉じる操作が1つ増えてしまうため。 */
   $("#tempDlg").showModal();
+
+  /* 新しく受け付けるときだけ、色の選択をすぐ開く。
+     受付は色から入力し始めるので1操作減る。
+     修正のときは時刻や料金を直したいことが多く、
+     色が勝手に開くと閉じる手間が増えるので開かない。 */
+  if (!t) setTimeout(() => { try { $("#tempColor").focus(); } catch (e) {} }, 60);
 }
 
 /* 入庫日と出庫日から預かり日数を出し、目安の料金を案内する */
